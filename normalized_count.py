@@ -17,7 +17,8 @@ class NormalizedCount:
     # Output: The reconstructed weighted directed network
     def __init__(self, data_file, do_3d=False):
         self.raster_dict, self.raster = self.clean_zs_from_data_file(data_file, do_3d)
-        self.count_coincident_components()
+        self.num_propagation_steps, self.nodes_active_at_time, self.map = self.count_coincident_components()
+        self.nc_ij = self.normalized_count()
 
     @staticmethod
     def clean_zs_from_data_file(data_file, do_3d=False):
@@ -44,11 +45,57 @@ class NormalizedCount:
 
     def count_coincident_components(self):
         """Use image labeling to count coincident components"""
-        structure = [[1, 1, 1],
-                     [1, 1, 1],
-                     [1, 1, 1]]
-        labeled, count = ndimage.label(self.raster, structure=structure)
-        print(labeled, count)
+        rows = self.raster.shape[0]
+        cols = self.raster.shape[1]
+
+        num_propagation_steps = 0
+        choices_at_each_timestep = {i: 0 for i in range(cols)}
+        timestep_propagation_map = []
+        ones_indices = []
+        for timestep in range(0, cols):
+            for voxel in range(0, rows):
+                if self.raster[voxel, timestep] == 1:
+                    ones_indices.append([voxel, timestep])
+        for pair in ones_indices:
+            timestep = pair[1]
+            choices_at_each_timestep[timestep] += 1
+        for key in choices_at_each_timestep.keys():
+            if choices_at_each_timestep.get(key+1) is not None:
+                if (choices_at_each_timestep[key] * choices_at_each_timestep[key+1]) > 0:
+                    timestep_propagation_map.append((key,
+                                                     choices_at_each_timestep[key] * choices_at_each_timestep[key+1]))
+                num_propagation_steps += (choices_at_each_timestep[key] * choices_at_each_timestep[key+1])
+        return num_propagation_steps, choices_at_each_timestep, timestep_propagation_map
+
+    def normalized_count(self):
+        """Super inefficient, but the outcome should be a dict of nc_ij values.
+
+        NC[i] = j:nc(ij) for all j
+
+        :return: nc_ij dict
+        """
+        nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
+        for i in range(self.raster.shape[0]):
+            for j in range(self.raster.shape[0]):
+                nc_ij = 0
+                prop_index = 0
+                running_sum = self.map[prop_index][1]
+                for prop_step in range(1, self.num_propagation_steps-1):
+                    if prop_step < running_sum:
+                        t = self.map[prop_index][0]
+                    else:
+                        prop_index += 1
+                        t = self.map[prop_index][0]
+                        running_sum += self.map[prop_index][1]
+                    t_plus_1 = t+1
+                    if self.nodes_active_at_time.get(t):
+                        coincident_flashers = self.raster[i, t] * self.raster[j, t_plus_1]
+                        if coincident_flashers > 0 and self.nodes_active_at_time[t] > 0:
+                            nc_ij += (coincident_flashers / self.nodes_active_at_time[t])
+
+                nc[i, j] = nc_ij
+        print(nc)
+        return nc
 
 
 class DataWrangler:

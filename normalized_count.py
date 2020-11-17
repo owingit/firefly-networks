@@ -70,9 +70,9 @@ class NormalizedCount:
     def normalized_count(self):
         """Super inefficient, but the outcome should be a dict of nc_ij values.
 
-        NC[i] = j:nc(ij) for all j
+        NC[i,j] = NC_ij
 
-        :return: nc_ij dict
+        :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
         for i in range(self.raster.shape[0]):

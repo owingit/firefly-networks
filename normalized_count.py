@@ -1,5 +1,8 @@
 import networkx as nx
+from collections import OrderedDict
+import numpy as np
 import pandas as pd
+from scipy import ndimage
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -12,8 +15,40 @@ class NormalizedCount:
     # (ii) p-value for the reconstruction, p.
 
     # Output: The reconstructed weighted directed network
-    def __init__(self, data_file):
-        self.data_file = data_file
+    def __init__(self, data_file, do_3d=False):
+        self.raster_dict, self.raster = self.clean_zs_from_data_file(data_file, do_3d)
+        self.count_coincident_components()
+
+    @staticmethod
+    def clean_zs_from_data_file(data_file, do_3d=False):
+        """Remove zs and convert to raster for analysis"""
+        raster_dict = OrderedDict()
+        max_t = 0
+        num_voxels = len(data_file.keys())
+        for voxel, timesteps in data_file.items():
+            if not do_3d:
+                vox = (voxel[0], voxel[1])
+            else:
+                vox = voxel
+            if max(timesteps) > max_t:
+                max_t = max(timesteps) + 1
+            key = min(timesteps)
+            raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+        raster = np.zeros((num_voxels, int(max_t)))
+        for i, voxel in enumerate(sorted(raster_dict.keys(), key=lambda x: x[0])):
+            # i is the index in the Nt x N sparse matrix of the current voxel
+            # 1s should indicate source nodes
+            for timestep in raster_dict[voxel]:
+                raster[i][int(timestep)] = 1
+        return raster_dict, raster
+
+    def count_coincident_components(self):
+        """Use image labeling to count coincident components"""
+        structure = [[1, 1, 1],
+                     [1, 1, 1],
+                     [1, 1, 1]]
+        labeled, count = ndimage.label(self.raster, structure=structure)
+        print(labeled, count)
 
 
 class DataWrangler:
@@ -50,8 +85,6 @@ class DataWrangler:
         self.real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
                                                 for key, ts in voxels_to_activation_times.items()
                                                 }
-
-
 
     @staticmethod
     def adjust_start_0(val, overall_min):
@@ -121,11 +154,18 @@ class DataWrangler:
 
 
 def visualize_voxels_and_points(voxeled, df, voxel_length):
-    fig, ax = plt.subplots(figsize=(12, 12))
+    """Plots voxels
 
-    ax.scatter(df["x"], df["y"], s=1.5, alpha=1, color="blue")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
+    :param voxeled: voxelified data
+    :param df: actual data
+    :param voxel_length: voxel length
+    :return: figure and axis for plotting
+    """
+    figur, axys = plt.subplots(figsize=(12, 12))
+
+    axys.scatter(df["x"], df["y"], s=1.5, alpha=1, color="blue")
+    axys.set_xlabel("x")
+    axys.set_ylabel("y")
 
     for x, y, z in voxeled:
         # https://stackoverflow.com/questions/37435369/matplotlib-how-to-draw-a-rectangle-on-image
@@ -136,11 +176,13 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
                                  edgecolor="r",
                                  linewidth=1,
                                  fill=False)
-        ax.add_patch(rect)
-    return fig, ax
+        axys.add_patch(rect)
+    return figur, axys
 
 
-dw_test = DataWrangler(_FILE, do_3d=False)
-fig, ax = visualize_voxels_and_points(dw_test.real_voxels_to_activation_times, dw_test.df, dw_test.voxel_length)
-ax.set_title("Simulated with Voxel Length 0.5")
-plt.show()
+do_3d = False
+dw_test = DataWrangler(_FILE, do_3d=do_3d)
+normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
+# fig, ax = visualize_voxels_and_points(dw_test.real_voxels_to_activation_times, dw_test.df, dw_test.voxel_length)
+# ax.set_title("Simulated with Voxel Length 0.5")
+# plt.show()

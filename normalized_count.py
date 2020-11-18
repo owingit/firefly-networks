@@ -3,6 +3,7 @@ from collections import OrderedDict
 import numpy as np
 import pandas as pd
 from scipy import ndimage
+from sklearn.preprocessing import normalize
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -17,7 +18,7 @@ class NormalizedCount:
     # Output: The reconstructed weighted directed network
     def __init__(self, data_file, do_3d=False):
         self.raster_dict, self.raster = self.clean_zs_from_data_file(data_file, do_3d)
-        self.num_propagation_steps, self.nodes_active_at_time, self.map = self.count_coincident_components()
+        self.num_propagation_steps, self.ijs_at_each_timestep = self.count_coincident_components()
         self.nc_ij = self.normalized_count()
 
     @staticmethod
@@ -49,53 +50,43 @@ class NormalizedCount:
         cols = self.raster.shape[1]
 
         num_propagation_steps = 0
-        choices_at_each_timestep = {i: 0 for i in range(cols)}
-        timestep_propagation_map = []
+        ijs_at_each_timestep = {i: [] for i in range(cols)}
         ones_indices = []
         for timestep in range(0, cols):
             for voxel in range(0, rows):
                 if self.raster[voxel, timestep] == 1:
-                    ones_indices.append([voxel, timestep])
+                    ones_indices.append((voxel, timestep))
         for pair in ones_indices:
             timestep = pair[1]
-            choices_at_each_timestep[timestep] += 1
-        for key in choices_at_each_timestep.keys():
-            if choices_at_each_timestep.get(key+1) is not None:
-                if (choices_at_each_timestep[key] * choices_at_each_timestep[key+1]) > 0:
-                    timestep_propagation_map.append((key,
-                                                     choices_at_each_timestep[key] * choices_at_each_timestep[key+1]))
-                num_propagation_steps += (choices_at_each_timestep[key] * choices_at_each_timestep[key+1])
-        return num_propagation_steps, choices_at_each_timestep, timestep_propagation_map
+            nxt = timestep + 1
+            partner_list = [p for p in ones_indices if nxt == p[1]]
+            coincident_partnerships = [(pair[0], pl[0]) for pl in partner_list]
+            ijs_at_each_timestep[timestep].extend(coincident_partnerships)
+        for key in ijs_at_each_timestep.keys():
+            if ijs_at_each_timestep.get(key+1) is not None:
+                num_propagation_steps += (len(ijs_at_each_timestep[key]))
+        return num_propagation_steps, ijs_at_each_timestep
 
     def normalized_count(self):
-        """Super inefficient, but the outcome should be a dict of nc_ij values.
+        """Super inefficient, but the outcome should be a 2d array of nc_ij values.
 
         NC[i,j] = NC_ij
 
         :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for i in range(self.raster.shape[0]):
-            for j in range(self.raster.shape[0]):
-                nc_ij = 0
-                prop_index = 0
-                running_sum = self.map[prop_index][1]
-                for prop_step in range(1, self.num_propagation_steps-1):
-                    if prop_step < running_sum:
-                        t = self.map[prop_index][0]
-                    else:
-                        prop_index += 1
-                        t = self.map[prop_index][0]
-                        running_sum += self.map[prop_index][1]
-                    t_plus_1 = t+1
-                    if self.nodes_active_at_time.get(t):
-                        coincident_flashers = self.raster[i, t] * self.raster[j, t_plus_1]
-                        if coincident_flashers > 0 and self.nodes_active_at_time[t] > 0:
-                            nc_ij += (coincident_flashers / self.nodes_active_at_time[t])
-
-                nc[i, j] = nc_ij
-        print(nc)
-        return nc
+        for propagation_index in self.ijs_at_each_timestep:
+            if len(self.ijs_at_each_timestep.get(propagation_index)) == 0:
+                continue
+            else:
+                for (i, j) in self.ijs_at_each_timestep[propagation_index]:
+                    if i == 0:
+                        print(i, j)
+                    nc_ij = (1.0 / len(self.ijs_at_each_timestep[propagation_index]))
+                    nc[i, j] += nc_ij
+        normalized_counts = normalize(nc, axis=1, norm='l2')
+        print(normalized_counts)
+        return normalized_counts
 
 
 class DataWrangler:

@@ -18,12 +18,11 @@ class NormalizedCount:
     # (ii) p-value for the reconstruction, p.
 
     # Output: The reconstructed weighted directed network
-    def __init__(self, data_file, do_3d=False):
-        self.raster_dict, self.raster = self.clean_zs_from_data_file(data_file, do_3d)
+    def __init__(self, voxel_coords_to_ts, do_3d=False):
+        self.raster = self.build_raster(voxel_coords_to_ts, do_3d)
         self.num_propagation_steps, self.ijs_at_each_timestep, ones_indices = self.count_coincident_components()
         self.num_cascades, self.clustered_timesteps = self.count_cascades(ones_indices)
         self.nc_ij = {}
-        print(self.clustered_timesteps)
         for cascade in range(self.num_cascades):
             timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
             min_t = min(timesteps_in_cascade)
@@ -54,12 +53,12 @@ class NormalizedCount:
         return num_clusters, q
 
     @staticmethod
-    def clean_zs_from_data_file(data_file, do_3d=False):
-        """Remove zs and convert to raster for analysis"""
+    def build_raster(voxel_coords_to_ts, do_3d=False):
+        """Convert to raster for analysis"""
         raster_dict = OrderedDict()
         max_t = 0
-        num_voxels = len(data_file.keys())
-        for voxel, timesteps in data_file.items():
+        num_voxels = len(voxel_coords_to_ts.keys())
+        for voxel, timesteps in voxel_coords_to_ts.items():
             if not do_3d:
                 vox = (voxel[0], voxel[1])
             else:
@@ -68,16 +67,23 @@ class NormalizedCount:
                 max_t = max(timesteps) + 1
             key = min(timesteps)
             raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+
         raster = np.zeros((num_voxels, int(max_t)))
         for i, voxel in enumerate(sorted(raster_dict.keys(), key=lambda x: x[0])):
             # i is the index in the Nt x N sparse matrix of the current voxel
             # 1s should indicate source nodes
             for timestep in raster_dict[voxel]:
                 raster[i][int(timestep)] = 1
-        return raster_dict, raster
+        return raster
 
-    def count_coincident_components(self):
-        """Use image labeling to count coincident components"""
+    def count_coincident_components(self, time_bin_length=1):
+        """
+
+        :param time_bin_length: Delta t
+        :return: number of total propagations (flash moments crossed with coincident (flash at t+x) moments)
+        :return: dict of potential propagation steps per timestep
+        :return: list of (node, timestep) flash points (1s in the raster)
+        """
         rows = self.raster.shape[0]
         cols = self.raster.shape[1]
 
@@ -88,15 +94,18 @@ class NormalizedCount:
             for voxel in range(0, rows):
                 if self.raster[voxel, timestep] == 1:
                     ones_indices.append((voxel, timestep))
-        for pair in ones_indices:
-            timestep = pair[1]
-            nxt = timestep + 1
-            partner_list = [p for p in ones_indices if nxt == p[1]]
-            coincident_partnerships = [(pair[0], pl[0]) for pl in partner_list]
+
+        for node_time_pair in ones_indices:
+            timestep = node_time_pair[1]
+            nxt_timestep = timestep + time_bin_length
+            partner_list = [p for p in ones_indices if timestep < p[1] <= nxt_timestep]
+            coincident_partnerships = [(node_time_pair[0], possible_partner[0]) for possible_partner in partner_list]
             ijs_at_each_timestep[timestep].extend(coincident_partnerships)
+
         for key in ijs_at_each_timestep.keys():
             if ijs_at_each_timestep.get(key+1) is not None:
                 num_propagation_steps += (len(ijs_at_each_timestep[key]))
+
         return num_propagation_steps, ijs_at_each_timestep, ones_indices
 
     def normalized_count(self, min_t, max_t):
@@ -109,16 +118,15 @@ class NormalizedCount:
         :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for propagation_index in self.ijs_at_each_timestep:
+        for propagation_index in self.ijs_at_each_timestep.keys():
             if len(self.ijs_at_each_timestep.get(propagation_index)) == 0:
                 continue
             elif min_t > propagation_index or propagation_index > max_t:
                 continue
             else:
                 for (i, j) in self.ijs_at_each_timestep[propagation_index]:
-                    if i == 0:
-                        print(i, j)
-                    nc_ij = (1.0 / len(self.ijs_at_each_timestep[propagation_index]))
+                    nodes_active_at_time_i = set([x for (x, y) in self.ijs_at_each_timestep[propagation_index]])
+                    nc_ij = (1.0 / len(nodes_active_at_time_i))
                     nc[i, j] += nc_ij
         normalized_counts = normalize(nc, axis=1, norm='l2')
         return normalized_counts

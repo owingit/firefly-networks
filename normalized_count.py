@@ -1,4 +1,6 @@
 import networkx as nx
+from sklearn.cluster import KMeans
+
 from collections import OrderedDict
 import numpy as np
 import pandas as pd
@@ -18,8 +20,32 @@ class NormalizedCount:
     # Output: The reconstructed weighted directed network
     def __init__(self, data_file, do_3d=False):
         self.raster_dict, self.raster = self.clean_zs_from_data_file(data_file, do_3d)
-        self.num_propagation_steps, self.ijs_at_each_timestep = self.count_coincident_components()
-        self.nc_ij = self.normalized_count()
+        self.num_propagation_steps, self.ijs_at_each_timestep, ones_indices = self.count_coincident_components()
+        self.num_cascades, self.clustered_timesteps = self.count_cascades(ones_indices)
+        self.nc_ij = {}
+        print(self.clustered_timesteps)
+        for cascade in range(self.num_cascades):
+            timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
+            min_t = min(timesteps_in_cascade)
+            max_t = max(timesteps_in_cascade)
+            self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
+        print(self.nc_ij)
+
+    def count_cascades(self, flash_occurrences):
+        list_of_flash_timesteps = [fo[1] for fo in flash_occurrences]
+        loft = np.array(list(set(list_of_flash_timesteps)))
+        thresh = 9
+        num_clusters = 0
+        for i in range(len(loft) - 1):
+            j = i + 1
+            if loft[j] - loft[i] > thresh:
+                num_clusters += 1
+        km = KMeans(n_clusters=num_clusters)
+
+        km.fit(loft.reshape(-1, 1))
+        q = list(zip(loft, km.labels_))
+
+        return num_clusters, q
 
     @staticmethod
     def clean_zs_from_data_file(data_file, do_3d=False):
@@ -65,18 +91,22 @@ class NormalizedCount:
         for key in ijs_at_each_timestep.keys():
             if ijs_at_each_timestep.get(key+1) is not None:
                 num_propagation_steps += (len(ijs_at_each_timestep[key]))
-        return num_propagation_steps, ijs_at_each_timestep
+        return num_propagation_steps, ijs_at_each_timestep, ones_indices
 
-    def normalized_count(self):
+    def normalized_count(self, min_t, max_t):
         """Super inefficient, but the outcome should be a 2d array of nc_ij values.
 
         NC[i,j] = NC_ij
 
+        :param min_t: min timestep of current cascade
+        :param max_t: max timestep of current cascade
         :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
         for propagation_index in self.ijs_at_each_timestep:
             if len(self.ijs_at_each_timestep.get(propagation_index)) == 0:
+                continue
+            elif min_t > propagation_index or propagation_index > max_t:
                 continue
             else:
                 for (i, j) in self.ijs_at_each_timestep[propagation_index]:
@@ -85,7 +115,6 @@ class NormalizedCount:
                     nc_ij = (1.0 / len(self.ijs_at_each_timestep[propagation_index]))
                     nc[i, j] += nc_ij
         normalized_counts = normalize(nc, axis=1, norm='l2')
-        print(normalized_counts)
         return normalized_counts
 
 

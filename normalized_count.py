@@ -128,7 +128,7 @@ class NormalizedCount:
                     nodes_active_at_time_t = set([x for (x, y) in self.ijs_at_each_timestep[t]])
                     nc_ij = (1.0 / len(nodes_active_at_time_t))
                     nc[i, j] += nc_ij
-        normalized_counts = normalize(nc, axis=1, norm='l2')
+        normalized_counts = nc / self.num_propagation_steps
         return normalized_counts
 
 

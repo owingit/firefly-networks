@@ -118,15 +118,15 @@ class NormalizedCount:
         :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for propagation_index in self.ijs_at_each_timestep.keys():
-            if len(self.ijs_at_each_timestep.get(propagation_index)) == 0:
+        for t in self.ijs_at_each_timestep.keys():
+            if len(self.ijs_at_each_timestep.get(t)) == 0:
                 continue
-            elif min_t > propagation_index or propagation_index > max_t:
+            elif min_t > t or t > max_t:
                 continue
             else:
-                for (i, j) in self.ijs_at_each_timestep[propagation_index]:
-                    nodes_active_at_time_i = set([x for (x, y) in self.ijs_at_each_timestep[propagation_index]])
-                    nc_ij = (1.0 / len(nodes_active_at_time_i))
+                for (i, j) in self.ijs_at_each_timestep[t]:
+                    nodes_active_at_time_t = set([x for (x, y) in self.ijs_at_each_timestep[t]])
+                    nc_ij = (1.0 / len(nodes_active_at_time_t))
                     nc[i, j] += nc_ij
         normalized_counts = normalize(nc, axis=1, norm='l2')
         return normalized_counts

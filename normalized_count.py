@@ -31,7 +31,13 @@ class NormalizedCount:
             self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
         print(self.nc_ij)
 
-    def count_cascades(self, flash_occurrences):
+    @staticmethod
+    def count_cascades(flash_occurrences):
+        """ Count the number of cascades and label timesteps to their cascade using kmeans
+
+        :param flash_occurrences: Timesteps of flashes
+        :return: number of clusters, and list of flash -> cascade label pairs
+        """
         list_of_flash_timesteps = [fo[1] for fo in flash_occurrences]
         loft = np.array(list(set(list_of_flash_timesteps)))
         thresh = 9

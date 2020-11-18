@@ -28,7 +28,6 @@ class NormalizedCount:
             min_t = min(timesteps_in_cascade)
             max_t = max(timesteps_in_cascade)
             self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
-        print(self.nc_ij)
 
     @staticmethod
     def count_cascades(flash_occurrences):

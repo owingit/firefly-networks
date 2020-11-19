@@ -4,8 +4,6 @@ from sklearn.cluster import KMeans
 from collections import OrderedDict
 import numpy as np
 import pandas as pd
-from scipy import ndimage
-from sklearn.preprocessing import normalize
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -18,9 +16,10 @@ class NormalizedCount:
     # (ii) p-value for the reconstruction, p.
 
     # Output: The reconstructed weighted directed network
-    def __init__(self, voxel_coords_to_ts, do_3d=False):
-        self.raster = self.build_raster(voxel_coords_to_ts, do_3d)
-        self.num_propagation_steps, self.ijs_at_each_timestep, ones_indices = self.count_coincident_components()
+    def __init__(self, voxel_coords_to_ts, time_bin_length=1, do_3d=False):
+        self.time_bin_length = time_bin_length
+        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d, self.time_bin_length)
+        self.num_propagation_steps, self.ijs_at_each_timebin, ones_indices = self.count_coincident_components()
         self.num_cascades, self.clustered_timesteps = self.count_cascades(ones_indices)
         self.nc_ij = {}
         for cascade in range(self.num_cascades):
@@ -28,6 +27,7 @@ class NormalizedCount:
             min_t = min(timesteps_in_cascade)
             max_t = max(timesteps_in_cascade)
             self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
+        print(self.nc_ij)
 
     @staticmethod
     def count_cascades(flash_occurrences):
@@ -52,8 +52,14 @@ class NormalizedCount:
         return num_clusters, q
 
     @staticmethod
-    def build_raster(voxel_coords_to_ts, do_3d=False):
-        """Convert to raster for analysis"""
+    def build_raster(voxel_coords_to_ts, do_3d=False, time_bin_length=1):
+        """Convert to raster for analysis
+
+        :param voxel_coords_to_ts: voxel cooordinates and timesteps at which they are active
+        :param do_3d: whether to do zcoord
+        :param time_bin_length: Time delta
+        :returns: raster of 1s and 0s for active time bins
+        """
         raster_dict = OrderedDict()
         max_t = 0
         num_voxels = len(voxel_coords_to_ts.keys())
@@ -65,20 +71,31 @@ class NormalizedCount:
             if max(timesteps) > max_t:
                 max_t = max(timesteps) + 1
             key = min(timesteps)
-            raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+            if not do_3d:
+                raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+            else:
+                raster_dict[(int(key), vox[0], vox[1], vox[2])] = sorted(timesteps)
 
-        raster = np.zeros((num_voxels, int(max_t)))
+        raster = np.zeros((num_voxels, int(max_t // time_bin_length)))
+        if time_bin_length > 1:
+            for voxel, timesteps in raster_dict.items():
+                effective_time_bins = np.zeros(int(max_t // time_bin_length))
+                for timestep in timesteps:
+                    effective_time_bins[int(timestep // time_bin_length)] = 1
+                raster_dict[voxel] = [float(time_bin) for time_bin in range(len(effective_time_bins))
+                                      if effective_time_bins[time_bin] > 0]
+        i_voxel_mapping = {}
         for i, voxel in enumerate(sorted(raster_dict.keys(), key=lambda x: x[0])):
+            i_voxel_mapping[i] = voxel
             # i is the index in the Nt x N sparse matrix of the current voxel
             # 1s should indicate source nodes
             for timestep in raster_dict[voxel]:
                 raster[i][int(timestep)] = 1
-        return raster
+        return raster, i_voxel_mapping
 
-    def count_coincident_components(self, time_bin_length=1):
+    def count_coincident_components(self):
         """
 
-        :param time_bin_length: Delta t
         :return: number of total propagations (flash moments crossed with coincident (flash at t+x) moments)
         :return: dict of potential propagation steps per timestep
         :return: list of (node, timestep) flash points (1s in the raster)
@@ -87,28 +104,28 @@ class NormalizedCount:
         cols = self.raster.shape[1]
 
         num_propagation_steps = 0
-        ijs_at_each_timestep = {i: [] for i in range(cols)}
+        ijs_at_each_timebin = {i: [] for i in range(cols)}
         ones_indices = []
-        for timestep in range(0, cols):
+        for timebin in range(0, cols):
             for voxel in range(0, rows):
-                if self.raster[voxel, timestep] == 1:
-                    ones_indices.append((voxel, timestep))
+                if self.raster[voxel, timebin] == 1:
+                    ones_indices.append((voxel, timebin))
 
         for node_time_pair in ones_indices:
-            timestep = node_time_pair[1]
-            nxt_timestep = timestep + time_bin_length
-            partner_list = [p for p in ones_indices if timestep < p[1] <= nxt_timestep]
+            timebin = node_time_pair[1]
+            nxt_timebin = timebin + 1
+            partner_list = [p for p in ones_indices if timebin < p[1] <= nxt_timebin]
             coincident_partnerships = [(node_time_pair[0], possible_partner[0]) for possible_partner in partner_list]
-            ijs_at_each_timestep[timestep].extend(coincident_partnerships)
+            ijs_at_each_timebin[timebin].extend(coincident_partnerships)
 
-        for key in ijs_at_each_timestep.keys():
-            if ijs_at_each_timestep.get(key+1) is not None:
-                num_propagation_steps += (len(ijs_at_each_timestep[key]))
+        for key in ijs_at_each_timebin.keys():
+            if ijs_at_each_timebin.get(key+1) is not None:
+                num_propagation_steps += (len(ijs_at_each_timebin[key]))
 
-        return num_propagation_steps, ijs_at_each_timestep, ones_indices
+        return num_propagation_steps, ijs_at_each_timebin, ones_indices
 
     def normalized_count(self, min_t, max_t):
-        """Super inefficient, but the outcome should be a 2d array of nc_ij values.
+        """Not so inefficient now! Uses a mapping of t -> coincident t, t+1 flashers to calculate NC_ij
 
         NC[i,j] = NC_ij
 
@@ -117,14 +134,14 @@ class NormalizedCount:
         :return: 2d nc_ij array
         """
         nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for t in self.ijs_at_each_timestep.keys():
-            if len(self.ijs_at_each_timestep.get(t)) == 0:
+        for t in self.ijs_at_each_timebin.keys():
+            if len(self.ijs_at_each_timebin.get(t)) == 0:
                 continue
             elif min_t > t or t > max_t:
                 continue
             else:
-                for (i, j) in self.ijs_at_each_timestep[t]:
-                    nodes_active_at_time_t = set([x for (x, y) in self.ijs_at_each_timestep[t]])
+                for (i, j) in self.ijs_at_each_timebin[t]:
+                    nodes_active_at_time_t = set([x for (x, y) in self.ijs_at_each_timebin[t]])
                     nc_ij = (1.0 / len(nodes_active_at_time_t))
                     nc[i, j] += nc_ij
         normalized_counts = nc / self.num_propagation_steps
@@ -262,7 +279,7 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 
 do_3d = False
 dw_test = DataWrangler(_FILE, do_3d=do_3d)
-normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
+normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
 # fig, ax = visualize_voxels_and_points(dw_test.real_voxels_to_activation_times, dw_test.df, dw_test.voxel_length)
 # ax.set_title("Simulated with Voxel Length 0.5")
 # plt.show()

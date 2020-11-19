@@ -18,7 +18,7 @@ class NormalizedCount:
     # Output: The reconstructed weighted directed network
     def __init__(self, voxel_coords_to_ts, time_bin_length=1, do_3d=False):
         self.time_bin_length = time_bin_length
-        self.raster = self.build_raster(voxel_coords_to_ts, do_3d, self.time_bin_length)
+        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d, self.time_bin_length)
         self.num_propagation_steps, self.ijs_at_each_timebin, ones_indices = self.count_coincident_components()
         self.num_cascades, self.clustered_timesteps = self.count_cascades(ones_indices)
         self.nc_ij = {}
@@ -71,23 +71,27 @@ class NormalizedCount:
             if max(timesteps) > max_t:
                 max_t = max(timesteps) + 1
             key = min(timesteps)
-            raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+            if not do_3d:
+                raster_dict[(int(key), vox[0], vox[1])] = sorted(timesteps)
+            else:
+                raster_dict[(int(key), vox[0], vox[1], vox[2])] = sorted(timesteps)
 
-        raster = np.zeros((num_voxels, int(max_t / time_bin_length)))
+        raster = np.zeros((num_voxels, int(max_t // time_bin_length)))
         if time_bin_length > 1:
             for voxel, timesteps in raster_dict.items():
-                effective_time_bins = np.zeros(int(max_t / time_bin_length))
+                effective_time_bins = np.zeros(int(max_t // time_bin_length))
                 for timestep in timesteps:
-                    effective_time_bins[int(timestep / time_bin_length)] = 1
+                    effective_time_bins[int(timestep // time_bin_length)] = 1
                 raster_dict[voxel] = [float(time_bin) for time_bin in range(len(effective_time_bins))
                                       if effective_time_bins[time_bin] > 0]
-
+        i_voxel_mapping = {}
         for i, voxel in enumerate(sorted(raster_dict.keys(), key=lambda x: x[0])):
+            i_voxel_mapping[i] = voxel
             # i is the index in the Nt x N sparse matrix of the current voxel
             # 1s should indicate source nodes
             for timestep in raster_dict[voxel]:
                 raster[i][int(timestep)] = 1
-        return raster
+        return raster, i_voxel_mapping
 
     def count_coincident_components(self):
         """

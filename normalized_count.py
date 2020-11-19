@@ -6,8 +6,118 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import logging
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
+
+def do_single_shuffle(sub_raster, voxel_to_bin):
+    """
+    Attempts one shuffle with retries (with inf loop check) in sub_raster
+
+    :param sub_raster: a matrix keyed [voxel ID, (sliced) time bin ID] to make
+                       the shuffle in
+    :param voxel_to_bin: a dict keyed voxel ID -> active time bin ID (shuffle
+                         also performed here for consistency)
+    :return: None, performs shuffle in references
+    """
+
+    def attempt_shuffle():
+        voxel_ids = np.random.choice(list(voxel_to_bin.keys()), size=2, replace=False)
+        voxel0 = voxel_ids[0]
+        voxel1 = voxel_ids[1]
+        bin0 = voxel_to_bin[voxel0]
+        bin1 = voxel_to_bin[voxel1]
+
+        if bin0 == bin1:
+            return False
+
+        if sub_raster[voxel0, bin0] != 1 or sub_raster[voxel1, bin1] != 1:
+            raise Exception("sub raster does not have 1s correctly according to dict")
+
+        sub_raster[voxel0, bin0] = 0
+        sub_raster[voxel0, bin1] = 1
+
+        sub_raster[voxel1, bin1] = 0
+        sub_raster[voxel1, bin0] = 1
+
+        voxel_to_bin[voxel0] = bin1
+        voxel_to_bin[voxel1] = bin0
+        return True
+
+    attempts = 0
+    max_attempts = 10
+    while attempts < max_attempts:
+        if attempt_shuffle():
+            return
+        attempts += 1
+
+    raise Exception("exceeded maximum shuffle attempts")
+
+
+def shuffle_cascade(new_raster, min_bin, max_bin):
+    """
+    Does n_s shuffles of activation time bins in new_raster.
+
+    :param new_raster: matrix keyed [voxel ID, time bin ID]
+    :param min_bin: the bin to start shuffling at (inclusive)
+    :param max_bin: the bin to stop shuffling at (inclusive)
+    :return: None, performs shuffles in new_raster
+    """
+
+    # this is a VIEW, so edited the subraster will cause an edit
+    # to new_raster
+    # see: https://stackoverflow.com/questions/30917753/subsetting-a-2d-numpy-array
+    sub_raster = new_raster[:, min_bin:max_bin + 1]
+
+    # mapping of voxel ID -> (sliced) bin ID (so bin ID + min_bin is actual bin ID)
+    voxel_to_bin = {}
+    for voxel_id in range(sub_raster.shape[0]):
+        for sliced_bin_id in range(sub_raster.shape[1]):
+            if sub_raster[voxel_id, sliced_bin_id] == 1:
+                if voxel_id in voxel_to_bin:
+                    logging.warn("voxel ID %s is active multiple times in time bin range [%s, %s]" % (voxel_id, min_bin, max_bin))
+                voxel_to_bin[voxel_id] = sliced_bin_id
+
+    n_s = len(voxel_to_bin.keys())
+    for i in range(n_s):
+        do_single_shuffle(sub_raster, voxel_to_bin)
+
+    return sub_raster
+
+
+def nc_shuffler(raster, clustered_timebins):
+    """
+    Takes the original raster and shuffles each cascade according to constrained
+    pairwise shuffling, in which two voxels (active at some point during the cascade)
+    are chosen and random and their time bins are swapped if they are not equal. If they
+    are equal, a new pair is chosen.
+
+    This swapping is performed n_s times per cascade, where n_s is the numbers of nodes
+    active during that cascade.
+
+    A new raster is returned based on the shuffled time bins.
+
+    :param raster: 2d matrix, keyed [voxel ID, time bin ID]
+    :param clustered_timebins: List of (time bin ID, cascade ID) pairs
+    :return: new raster with shuffled time bins per cascade
+    """
+
+    new_raster = np.copy(raster)
+
+    cluster_bin_df = pd.DataFrame(clustered_timebins, columns=["binID", "cascadeID"])
+    cascadeIDs = list(cluster_bin_df["cascadeID"].unique())
+    for cascade_id in cascadeIDs:
+        filtered = cluster_bin_df.loc[cluster_bin_df["cascadeID"] == cascade_id]
+        min_bin = filtered["binID"].min()
+        max_bin = filtered["binID"].max()
+
+        if min_bin == max_bin:
+            print("min and max bins are equal: %s, this shouldn't happen")
+            raise Exception()
+
+        shuffle_cascade(new_raster, min_bin, max_bin)
+
+    return new_raster
 
 
 class NormalizedCount:
@@ -280,6 +390,9 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 do_3d = False
 dw_test = DataWrangler(_FILE, do_3d=do_3d)
 normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
+# normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
+# test_random_raster = nc_shuffler(normalized_count.raster, normalized_count.clustered_timesteps)
+
 # fig, ax = visualize_voxels_and_points(dw_test.real_voxels_to_activation_times, dw_test.df, dw_test.voxel_length)
 # ax.set_title("Simulated with Voxel Length 0.5")
 # plt.show()

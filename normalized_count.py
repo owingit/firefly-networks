@@ -1,12 +1,9 @@
 import networkx as nx
 from sklearn.cluster import KMeans
 
-import math
 from collections import OrderedDict
 import numpy as np
 import pandas as pd
-from scipy import ndimage
-from sklearn.preprocessing import normalize
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 

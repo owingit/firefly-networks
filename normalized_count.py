@@ -10,33 +10,42 @@ import logging
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
 
-def do_single_shuffle(sub_raster, voxel_to_bin):
+def do_single_shuffle(sub_raster, voxel_bin_pairs):
     """
     Attempts one shuffle with retries (with inf loop check) in sub_raster
 
     :param sub_raster: a matrix keyed [voxel ID, (sliced) time bin ID] to make
                        the shuffle in
-    :param voxel_to_bin: a dict keyed voxel ID -> active time bin ID (shuffle
-                         also performed here for consistency)
+    :param voxel_bin_pairs: a set of (voxel ID, active time bin ID) pairs
+                            (shuffle also performed here for consistency)
     :return: None, performs shuffle in references
     """
 
     def attempt_shuffle():
-        # Pick 2 voxel id's from the set of active voxels in the sub-raster
-        voxel_ids = np.random.choice(list(voxel_to_bin.keys()), size=2, replace=False)
-        voxel0 = voxel_ids[0]
-        voxel1 = voxel_ids[1]
-        bin0 = voxel_to_bin[voxel0]
-        bin1 = voxel_to_bin[voxel1]
+        # Pick 2 indexes to try a swap of
+        templist = list(voxel_bin_pairs)
+        chosen_indices = np.random.choice(range(len(templist)), size=2, replace=False)
+
+        tup0 = templist[chosen_indices[0]]
+        tup1 = templist[chosen_indices[1]]
+
+        voxel0 = tup0[0]
+        bin0 = tup0[1]
+
+        voxel1 = tup1[0]
+        bin1 = tup1[1]
 
         # The condition to reject a proposed shuffle
-        if bin0 == bin1:
+        if (voxel0, bin1) in voxel_bin_pairs or (voxel1, bin0) in voxel_bin_pairs:
             return False
 
-        # This is a sanity check to make sure the dictionary and the raster are staying
+        # This is a sanity check to make sure the list and the raster are staying
         # consistent. Not necessary for the functioning of the algorithm.
-        if sub_raster[voxel0, bin0] != 1 or sub_raster[voxel1, bin1] != 1:
-            raise Exception("sub raster does not have 1s correctly according to dict")
+        if sub_raster[voxel0, bin0] != 1:
+            raise Exception("sub raster does not have 1s correctly according to list: voxel0")
+        if sub_raster[voxel1, bin1] != 1:
+            raise Exception("sub raster does not have 1s correctly according to list: voxel1")
+
 
         # Swap voxel0's bin
         sub_raster[voxel0, bin0] = 0
@@ -46,9 +55,13 @@ def do_single_shuffle(sub_raster, voxel_to_bin):
         sub_raster[voxel1, bin1] = 0
         sub_raster[voxel1, bin0] = 1
 
-        # Perform the swap in the dictionary too
-        voxel_to_bin[voxel0] = bin1
-        voxel_to_bin[voxel1] = bin0
+        newtup0 = (voxel0, bin1)
+        newtup1 = (voxel1, bin0)
+        voxel_bin_pairs.remove(tup0)
+        voxel_bin_pairs.remove(tup1)
+        voxel_bin_pairs.add(newtup0)
+        voxel_bin_pairs.add(newtup1)
+
         return True
 
     attempts = 0
@@ -80,19 +93,26 @@ def shuffle_cascade(new_raster, min_bin, max_bin):
     # see: https://stackoverflow.com/questions/30917753/subsetting-a-2d-numpy-array
     sub_raster = new_raster[:, min_bin:max_bin + 1]
 
-    # mapping of voxel ID -> (sliced) bin ID (so bin ID + min_bin is actual bin ID)
-    voxel_to_bin = {}
+    # a set of tuples (voxel ID, (sliced) bin ID (so bin ID + min_bin is actual bin ID))
+    voxel_bin_pairs = set()
+
     for voxel_id in range(sub_raster.shape[0]):
         for sliced_bin_id in range(sub_raster.shape[1]):
             if sub_raster[voxel_id, sliced_bin_id] == 1:
-                if voxel_id in voxel_to_bin:
-                    logging.warn("voxel ID %s is active multiple times in time bin range [%s, %s]" % (voxel_id, min_bin, max_bin))
-                voxel_to_bin[voxel_id] = sliced_bin_id
+                voxel_bin_pairs.add((voxel_id, sliced_bin_id))
+
 
     # According to the paper, n_s ~= num active nodes in the cascade
-    n_s = len(voxel_to_bin.keys())
+    num_active_nodes = len(set(map(lambda x: x[0], voxel_bin_pairs)))
+    n_s = num_active_nodes
+    logging.info("num active: %s" % num_active_nodes)
     for i in range(n_s):
-        do_single_shuffle(sub_raster, voxel_to_bin)
+        lenbefore = len(voxel_bin_pairs)
+        do_single_shuffle(sub_raster, voxel_bin_pairs)
+        lenafter = len(voxel_bin_pairs)
+
+        if lenbefore != lenafter:
+            raise Exception("broken invariant: reduced total activations")
 
     return sub_raster
 
@@ -403,9 +423,9 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
     return figur, axys
 
 
-do_3d = False
-dw_test = DataWrangler(_FILE, do_3d=do_3d)
-normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
+#do_3d = False
+#dw_test = DataWrangler(_FILE, do_3d=do_3d)
+#normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
 # normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
 # test_random_raster = nc_shuffler(normalized_count.raster, normalized_count.clustered_timesteps)
 

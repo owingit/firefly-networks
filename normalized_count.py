@@ -165,8 +165,12 @@ class NormalizedCount:
     # (ii) p-value for the reconstruction, p.
 
     # Output: The reconstructed weighted directed network
-    def __init__(self, voxel_coords_to_ts, do_3d=False, time_bin_length=1):
+    def __init__(self, voxel_coords_to_ts, do_3d=False, time_bin_length=1, f0=5, p=0.05):
         init_start = time.time()
+
+        self.f0 = f0
+        self.p = p
+
         #################
         #### MAIN NC
         #################
@@ -190,74 +194,27 @@ class NormalizedCount:
         #### NULL MODEL
         #################
         logging.info("starting null model")
-        # this is a list of nc results for the null model
-        self.nc_r_ij = []
 
-        # TODO: move these to class params?
-        # over-shuffling factor
-        self.f0 = 5
-        # significance level
-        self.p = 0.05
-
-        N_r = int(self.f0 / self.p)
-        logging.info("running NC on %s shuffled copies of raster for null model", N_r)
-
-        durations = []
-        started = time.time()
-        for i in range(N_r):
-            if i > 0 and i % 10 == 0:
-                logging.info("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
-
-            self.nc_r_ij.append(self.make_shuffled_nc_ij(self.raster, self.clustered_timesteps))
-            finished = time.time()
-            duration = finished - started
-            durations.append(duration)
-            started = finished
+        self.nc_r_ij = self.build_nc_r_ij(self.raster, self.clustered_timesteps, self.f0, self.p)
 
         ncrij_done = time.time()
         logging.info("done building nc^r_ij list, took: %s", ncrij_done - nc_ij_done)
         logging.info("building nc^p_ij")
 
-        self.nc_p_ij = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        nc_r_ij_3d = np.dstack(self.nc_r_ij) # 3d array keyed [voxel id, bin id, shuffle id]
-        for i in range(self.nc_p_ij.shape[0]):
-            for j in range(self.nc_p_ij.shape[1]):
-                # we assume the PDF over nc^r_ij is normal
-                mean = np.mean(nc_r_ij_3d[i, j, :])
-                stdev = np.std(nc_r_ij_3d[i, j, :])
-
-                # when mean is 0, all of the vals were 0
-                # and constructing norm(0, 0) is a runtime warning
-                if mean == 0:
-                    self.nc_p_ij[i, j] = 0
-                else:
-                    dist = norm(loc=mean, scale=stdev)
-                    threshold = dist.ppf(1 - self.p)
-
-                    self.nc_p_ij[i, j] = threshold
+        self.nc_r_ij_3d = np.dstack(self.nc_r_ij) # 3d array keyed [voxel id, bin id, shuffle id]
+        self.nc_p_ij = self.build_nc_p_ij(self.nc_r_ij_3d, self.p)
 
         ncpij_done = time.time()
         logging.info("done building nc^p_ij, took %s", ncpij_done - ncrij_done)
         logging.info("building a_ij")
 
-        # a_ij as defined in paper
-        self.a_ij = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for i in range(self.a_ij.shape[0]):
-            for j in range(self.a_ij.shape[1]):
-                if self.nc_ij[i, j] > self.nc_p_ij[i, j]:
-                    self.a_ij[i, j] = 1
-                else:
-                    self.a_ij[i, j] = 0
+        self.a_ij = self.build_a_ij(self.nc_ij, self.nc_p_ij)
 
         aij_done = time.time()
         logging.info("done building a_ij, took %s", aij_done - ncpij_done)
         logging.info("building w_ij")
 
-        # w_ij as defined in paper
-        self.w_ij = np.zeros(self.a_ij.shape)
-        for i in range(self.w_ij.shape[0]):
-            for j in range(self.w_ij.shape[1]):
-                self.w_ij[i, j] = self.a_ij[i, j]*(self.nc_ij[i, j] - self.nc_p_ij[i, j])
+        self.w_ij = self.build_w_ij(self.nc_ij, self.nc_p_ij, self.a_ij)
 
         wij_done = time.time()
         logging.info("done building w_ij, took %s", wij_done - aij_done)
@@ -268,6 +225,106 @@ class NormalizedCount:
 
         init_finished = time.time()
         logging.info("done with full NC algorithm, took: %s", init_finished - init_start)
+
+
+    @staticmethod
+    def build_nc_r_ij(base_raster, clustered_timebins, f0, p):
+        """
+        Builds the dataset for the null model by shuffling the base raster
+        f0/p times and computing NC for each shuffled raster.
+
+        :param base_raster: raster (2D matrix of [voxel, time bin]) for the dataset
+        :param clustered_timebins: List of (time bin ID, cascade ID) pairs
+        :param f0: shuffling factor
+        :param p: significance level
+        :return: list of matrices num nodes x num nodes where each matrix is the NC
+                 results on a shuffled version of the base raster
+        """
+
+        nc_r_ij = []
+
+        N_r = int(f0 / p)
+        logging.debug("running NC on %s shuffled copies of raster for null model", N_r)
+
+        durations = []
+        started = time.time()
+        for i in range(N_r):
+            if i > 0 and i % 10 == 0:
+                logging.debug("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
+
+            nc_r_ij.append(NormalizedCount.make_shuffled_nc_ij(base_raster, clustered_timebins))
+            finished = time.time()
+            duration = finished - started
+            durations.append(duration)
+            started = finished
+
+        return nc_r_ij
+
+    @staticmethod
+    def build_w_ij(nc_ij, nc_p_ij, a_ij):
+        """
+        Builds the w_ij matrix by setting [i, j] to be
+        a[i, j] * (NC[i, j] - NC^p[i, j])
+        """
+
+        w_ij = np.zeros(a_ij.shape)
+        for i in range(w_ij.shape[0]):
+            for j in range(w_ij.shape[1]):
+                w_ij[i, j] = a_ij[i, j]*(nc_ij[i, j] - nc_p_ij[i, j])
+
+        return w_ij
+
+    @staticmethod
+    def build_a_ij(nc_ij, nc_p_ij):
+        """
+        Builds the a_ij matrix by setting it to 1 at [i, j]
+        if NC[i, j] > NC^p[i, j]
+
+        :param nc_ij: 2d matrix of NC results on true data
+        :param nc_p_ij: 2d matrix based on significance level and shuffled NC results
+        :return: 2d matrix as described
+        """
+
+        a_ij = np.zeros(nc_ij.shape)
+        for i in range(a_ij.shape[0]):
+            for j in range(a_ij.shape[1]):
+                if nc_ij[i, j] > nc_p_ij[i, j]:
+                    a_ij[i, j] = 1
+                else:
+                    a_ij[i, j] = 0
+
+        return a_ij
+
+    @staticmethod
+    def build_nc_p_ij(nc_r_ij_3d, p):
+        """
+        Builds the NC^p_ij matrix by fitting a normal distribution
+        to each i,j from NC^r_ij and taking the PPF at 1-p.
+
+        :param nc_r_ij_3d: 3d array indexed [i, j, shuffle number] of shuffled NC results
+        :param p: significance level, lower is for higher confidence
+        :return: 2d matrix NC^p_ij keyed [i, j]
+        """
+
+        nc_p_ij = np.zeros((nc_r_ij_3d.shape[0], nc_r_ij_3d.shape[0]))
+        for i in range(nc_p_ij.shape[0]):
+            for j in range(nc_p_ij.shape[1]):
+                # we assume the PDF over nc^r_ij is normal
+                mean = np.mean(nc_r_ij_3d[i, j, :])
+                stdev = np.std(nc_r_ij_3d[i, j, :])
+
+                # when mean is 0, all of the vals were 0
+                # and constructing norm(0, 0) is a runtime warning
+                if mean == 0:
+                    nc_p_ij[i, j] = 0
+                else:
+                    dist = norm(loc=mean, scale=stdev)
+                    threshold = dist.ppf(1 - p)
+
+                    nc_p_ij[i, j] = threshold
+
+        return nc_p_ij
+
 
     @staticmethod
     def make_shuffled_nc_ij(base_raster, clustered_timesteps):

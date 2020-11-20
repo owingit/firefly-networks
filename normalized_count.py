@@ -26,14 +26,14 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         templist = list(voxel_bin_pairs)
         chosen_indices = np.random.choice(range(len(templist)), size=2, replace=False)
 
-        t0 = templist[chosen_indices[0]]
-        t1 = templist[chosen_indices[1]]
+        tup0 = templist[chosen_indices[0]]
+        tup1 = templist[chosen_indices[1]]
 
-        voxel0 = t0[0]
-        bin0 = t0[1]
+        voxel0 = tup0[0]
+        bin0 = tup0[1]
 
-        voxel1 = t1[0]
-        bin1 = t1[1]
+        voxel1 = tup1[0]
+        bin1 = tup1[1]
 
         # QUESTION: do we care about this check? I think it may preserve some property
         # of uniform sampling and swapping?
@@ -60,12 +60,12 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         sub_raster[voxel1, bin1] = 0
         sub_raster[voxel1, bin0] = 1
 
-        newt0 = (voxel0, bin1)
-        newt1 = (voxel1, bin0)
-        voxel_bin_pairs.remove(t0)
-        voxel_bin_pairs.remove(t1)
-        voxel_bin_pairs.add(newt0)
-        voxel_bin_pairs.add(newt1)
+        newtup0 = (voxel0, bin1)
+        newtup1 = (voxel1, bin0)
+        voxel_bin_pairs.remove(tup0)
+        voxel_bin_pairs.remove(tup1)
+        voxel_bin_pairs.add(newtup0)
+        voxel_bin_pairs.add(newtup1)
 
         return True
 
@@ -428,9 +428,9 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
     return figur, axys
 
 
-do_3d = False
-dw_test = DataWrangler(_FILE, do_3d=do_3d)
-normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
+#do_3d = False
+#dw_test = DataWrangler(_FILE, do_3d=do_3d)
+#normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
 # normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
 # test_random_raster = nc_shuffler(normalized_count.raster, normalized_count.clustered_timesteps)
 

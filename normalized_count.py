@@ -22,30 +22,41 @@ def do_single_shuffle(sub_raster, voxel_to_bin):
     """
 
     def attempt_shuffle():
+        # Pick 2 voxel id's from the set of active voxels in the sub-raster
         voxel_ids = np.random.choice(list(voxel_to_bin.keys()), size=2, replace=False)
         voxel0 = voxel_ids[0]
         voxel1 = voxel_ids[1]
         bin0 = voxel_to_bin[voxel0]
         bin1 = voxel_to_bin[voxel1]
 
+        # The condition to reject a proposed shuffle
         if bin0 == bin1:
             return False
 
+        # This is a sanity check to make sure the dictionary and the raster are staying
+        # consistent. Not necessary for the functioning of the algorithm.
         if sub_raster[voxel0, bin0] != 1 or sub_raster[voxel1, bin1] != 1:
             raise Exception("sub raster does not have 1s correctly according to dict")
 
+        # Swap voxel0's bin
         sub_raster[voxel0, bin0] = 0
         sub_raster[voxel0, bin1] = 1
 
+        # Swap voxel1's bin
         sub_raster[voxel1, bin1] = 0
         sub_raster[voxel1, bin0] = 1
 
+        # Perform the swap in the dictionary too
         voxel_to_bin[voxel0] = bin1
         voxel_to_bin[voxel1] = bin0
         return True
 
     attempts = 0
     max_attempts = 10
+    # Try a single shuffle, returns false if the proposed shuffle has equal time bins
+    # (the condition for a retry). This loop is to avoid an infinite loop in an edge
+    # case in which, for some reason, the only possible shuffles all have the same time
+    # bin (like a sub-raster consisting only of a single time bin).
     while attempts < max_attempts:
         if attempt_shuffle():
             return
@@ -78,6 +89,7 @@ def shuffle_cascade(new_raster, min_bin, max_bin):
                     logging.warn("voxel ID %s is active multiple times in time bin range [%s, %s]" % (voxel_id, min_bin, max_bin))
                 voxel_to_bin[voxel_id] = sliced_bin_id
 
+    # According to the paper, n_s ~= num active nodes in the cascade
     n_s = len(voxel_to_bin.keys())
     for i in range(n_s):
         do_single_shuffle(sub_raster, voxel_to_bin)
@@ -104,15 +116,19 @@ def nc_shuffler(raster, clustered_timebins):
 
     new_raster = np.copy(raster)
 
+    # build a dataframe of (time bin ID, cascade ID) for easier filtering to determine
+    # min/max bin for each cascade
     cluster_bin_df = pd.DataFrame(clustered_timebins, columns=["binID", "cascadeID"])
     cascadeIDs = list(cluster_bin_df["cascadeID"].unique())
     for cascade_id in cascadeIDs:
+        # determine min/max bin for the cascade
         filtered = cluster_bin_df.loc[cluster_bin_df["cascadeID"] == cascade_id]
         min_bin = filtered["binID"].min()
         max_bin = filtered["binID"].max()
 
+        # sanity check
         if min_bin == max_bin:
-            print("min and max bins are equal: %s, this shouldn't happen")
+            print("min and max bins are equal: %s, this shouldn't happen" % min_bin)
             raise Exception()
 
         shuffle_cascade(new_raster, min_bin, max_bin)

@@ -35,11 +35,6 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         voxel1 = tup1[0]
         bin1 = tup1[1]
 
-        # QUESTION: do we care about this check? I think it may preserve some property
-        # of uniform sampling and swapping?
-        if bin0 == bin1:
-            return False
-
         # The condition to reject a proposed shuffle
         if (voxel0, bin1) in voxel_bin_pairs or (voxel1, bin0) in voxel_bin_pairs:
             return False

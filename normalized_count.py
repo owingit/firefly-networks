@@ -171,6 +171,15 @@ class NormalizedCount:
         self.f0 = f0
         self.p = p
 
+        # old code for nc_ij per cascade
+        # self.nc_ij = {}
+        # for cascade in range(self.num_cascades):
+        #     timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
+        #     min_t = min(timesteps_in_cascade)
+        #     max_t = max(timesteps_in_cascade)
+        #     self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
+        # print(self.nc_ij)
+
         #################
         #### MAIN NC
         #################
@@ -260,6 +269,7 @@ class NormalizedCount:
 
         return nc_r_ij
 
+
     @staticmethod
     def build_w_ij(nc_ij, nc_p_ij, a_ij):
         """
@@ -267,12 +277,8 @@ class NormalizedCount:
         a[i, j] * (NC[i, j] - NC^p[i, j])
         """
 
-        w_ij = np.zeros(a_ij.shape)
-        for i in range(w_ij.shape[0]):
-            for j in range(w_ij.shape[1]):
-                w_ij[i, j] = a_ij[i, j]*(nc_ij[i, j] - nc_p_ij[i, j])
+        return a_ij * (nc_ij - nc_p_ij)
 
-        return w_ij
 
     @staticmethod
     def build_a_ij(nc_ij, nc_p_ij):
@@ -285,15 +291,8 @@ class NormalizedCount:
         :return: 2d matrix as described
         """
 
-        a_ij = np.zeros(nc_ij.shape)
-        for i in range(a_ij.shape[0]):
-            for j in range(a_ij.shape[1]):
-                if nc_ij[i, j] > nc_p_ij[i, j]:
-                    a_ij[i, j] = 1
-                else:
-                    a_ij[i, j] = 0
+        return nc_ij > nc_p_ij
 
-        return a_ij
 
     @staticmethod
     def build_nc_p_ij(nc_r_ij_3d, p):
@@ -336,15 +335,6 @@ class NormalizedCount:
         num_propagation_steps, ijs_at_each_timebin, ones_indices = NormalizedCount.count_coincident_components(shuffled_raster)
         new_nc_ij = NormalizedCount.normalized_count(shuffled_raster, ijs_at_each_timebin, num_propagation_steps)
         return new_nc_ij
-
-
-        # self.nc_ij = {}
-        # for cascade in range(self.num_cascades):
-        #     timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
-        #     min_t = min(timesteps_in_cascade)
-        #     max_t = max(timesteps_in_cascade)
-        #     self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
-        # print(self.nc_ij)
 
 
     @staticmethod
@@ -412,6 +402,7 @@ class NormalizedCount:
 
         return num_clusters, q
 
+
     @staticmethod
     def count_coincident_components(raster):
         """
@@ -443,6 +434,7 @@ class NormalizedCount:
                 num_propagation_steps += (len(ijs_at_each_timebin[key]))
 
         return num_propagation_steps, ijs_at_each_timebin, ones_indices
+
 
     @staticmethod
     def normalized_count(raster, ijs_at_each_timebin, num_propagation_steps, min_t=None, max_t=None):

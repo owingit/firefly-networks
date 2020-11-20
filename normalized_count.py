@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import logging
 import time
+from scipy.stats import norm
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
 
@@ -205,7 +206,7 @@ class NormalizedCount:
         started = time.time()
         for i in range(N_r):
             if i > 0 and i % 10 == 0:
-                logging.info("average duration for shuffled nc_ij so far: %s", np.mean(durations))
+                logging.info("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
 
             self.nc_r_ij.append(self.make_shuffled_nc_ij(self.raster, self.clustered_timesteps))
             finished = time.time()
@@ -213,8 +214,60 @@ class NormalizedCount:
             durations.append(duration)
             started = finished
 
-        null_done = time.time()
-        logging.info("done building nc_r_ij list, took: %s", null_done - nc_ij_done)
+        ncrij_done = time.time()
+        logging.info("done building nc^r_ij list, took: %s", ncrij_done - nc_ij_done)
+        logging.info("building nc^p_ij")
+
+        self.nc_p_ij = np.zeros((self.raster.shape[0], self.raster.shape[0]))
+        nc_r_ij_3d = np.dstack(self.nc_r_ij) # 3d array keyed [voxel id, bin id, shuffle id]
+        for i in range(self.nc_p_ij.shape[0]):
+            for j in range(self.nc_p_ij.shape[1]):
+                # we assume the PDF over nc^r_ij is normal
+                mean = np.mean(nc_r_ij_3d[i, j, :])
+                stdev = np.std(nc_r_ij_3d[i, j, :])
+
+                # when mean is 0, all of the vals were 0
+                # and constructing norm(0, 0) is a runtime warning
+                if mean == 0:
+                    self.nc_p_ij[i, j] = 0
+                else:
+                    dist = norm(loc=mean, scale=stdev)
+                    threshold = dist.ppf(1 - self.p)
+
+                    self.nc_p_ij[i, j] = threshold
+
+        ncpij_done = time.time()
+        logging.info("done building nc^p_ij, took %s", ncpij_done - ncrij_done)
+        logging.info("building a_ij")
+
+        # a_ij as defined in paper
+        self.a_ij = np.zeros((self.raster.shape[0], self.raster.shape[0]))
+        for i in range(self.a_ij.shape[0]):
+            for j in range(self.a_ij.shape[1]):
+                if self.nc_ij[i, j] > self.nc_p_ij[i, j]:
+                    self.a_ij[i, j] = 1
+                else:
+                    self.a_ij[i, j] = 0
+
+        aij_done = time.time()
+        logging.info("done building a_ij, took %s", aij_done - ncpij_done)
+        logging.info("building w_ij")
+
+        # w_ij as defined in paper
+        self.w_ij = np.zeros(self.a_ij.shape)
+        for i in range(self.w_ij.shape[0]):
+            for j in range(self.w_ij.shape[1]):
+                self.w_ij[i, j] = self.a_ij[i, j]*(self.nc_ij[i, j] - self.nc_p_ij[i, j])
+
+        wij_done = time.time()
+        logging.info("done building w_ij, took %s", wij_done - aij_done)
+
+        final_edge_count = np.sum(self.w_ij > 0)
+        active_voxel_count = self.raster.shape[0]
+        logging.info("total edges in w_ij: %s on voxel set size: %s", final_edge_count, active_voxel_count)
+
+        init_finished = time.time()
+        logging.info("done with full NC algorithm, took: %s", init_finished - init_start)
 
     @staticmethod
     def make_shuffled_nc_ij(base_raster, clustered_timesteps):

@@ -7,6 +7,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import logging
+import time
+from scipy.stats import norm
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
 
@@ -105,7 +107,7 @@ def shuffle_cascade(new_raster, min_bin, max_bin):
     # According to the paper, n_s ~= num active nodes in the cascade
     num_active_nodes = len(set(map(lambda x: x[0], voxel_bin_pairs)))
     n_s = num_active_nodes
-    logging.info("num active: %s" % num_active_nodes)
+    logging.debug("num active: %s" % num_active_nodes)
     for i in range(n_s):
         lenbefore = len(voxel_bin_pairs)
         do_single_shuffle(sub_raster, voxel_bin_pairs)
@@ -156,46 +158,184 @@ def nc_shuffler(raster, clustered_timebins):
     return new_raster
 
 
+
 class NormalizedCount:
     # Input:
     # (i)  A raster of activation data, recorded as (time,node) pairs,i.e. (te, se);
     # (ii) p-value for the reconstruction, p.
 
     # Output: The reconstructed weighted directed network
-    def __init__(self, voxel_coords_to_ts, time_bin_length=1, do_3d=False):
-        self.time_bin_length = time_bin_length
-        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d, self.time_bin_length)
-        self.num_propagation_steps, self.ijs_at_each_timebin, ones_indices = self.count_coincident_components()
-        self.num_cascades, self.clustered_timesteps = self.count_cascades(ones_indices)
-        self.nc_ij = {}
-        for cascade in range(self.num_cascades):
-            timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
-            min_t = min(timesteps_in_cascade)
-            max_t = max(timesteps_in_cascade)
-            self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
-        print(self.nc_ij)
+    def __init__(self, voxel_coords_to_ts, do_3d=False, time_bin_length=1, f0=5, p=0.05):
+        init_start = time.time()
+
+        self.f0 = f0
+        self.p = p
+
+        # old code for nc_ij per cascade
+        # self.nc_ij = {}
+        # for cascade in range(self.num_cascades):
+        #     timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
+        #     min_t = min(timesteps_in_cascade)
+        #     max_t = max(timesteps_in_cascade)
+        #     self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
+        # print(self.nc_ij)
+
+        #################
+        #### MAIN NC
+        #################
+        logging.info("building raster")
+        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d=do_3d, time_bin_length=time_bin_length)
+        raster_done = time.time()
+        logging.info("done with raster, took: %s", raster_done - init_start)
+        logging.info("building nc parameters, clustering")
+        self.num_propagation_steps, self.ijs_at_each_timebin, self.ones_indices = self.count_coincident_components(self.raster)
+        self.num_cascades, self.clustered_timesteps = self.count_cascades(self.ones_indices)
+        params_done = time.time()
+        logging.info("done with params, took: %s", params_done - raster_done)
+
+        logging.info("starting NC")
+        # TODO: this is a lazy hack to get only 1 NC
+        self.nc_ij = self.normalized_count(self.raster, self.ijs_at_each_timebin, self.num_propagation_steps)
+        nc_ij_done = time.time()
+        logging.info("done with NC, took: %s", nc_ij_done - params_done)
+
+        #################
+        #### NULL MODEL
+        #################
+        logging.info("starting null model")
+
+        self.nc_r_ij = self.build_nc_r_ij(self.raster, self.clustered_timesteps, self.f0, self.p)
+
+        ncrij_done = time.time()
+        logging.info("done building nc^r_ij list, took: %s", ncrij_done - nc_ij_done)
+        logging.info("building nc^p_ij")
+
+        self.nc_r_ij_3d = np.dstack(self.nc_r_ij) # 3d array keyed [voxel id, bin id, shuffle id]
+        self.nc_p_ij = self.build_nc_p_ij(self.nc_r_ij_3d, self.p)
+
+        ncpij_done = time.time()
+        logging.info("done building nc^p_ij, took %s", ncpij_done - ncrij_done)
+        logging.info("building a_ij")
+
+        self.a_ij = self.build_a_ij(self.nc_ij, self.nc_p_ij)
+
+        aij_done = time.time()
+        logging.info("done building a_ij, took %s", aij_done - ncpij_done)
+        logging.info("building w_ij")
+
+        self.w_ij = self.build_w_ij(self.nc_ij, self.nc_p_ij, self.a_ij)
+
+        wij_done = time.time()
+        logging.info("done building w_ij, took %s", wij_done - aij_done)
+
+        final_edge_count = np.sum(self.w_ij > 0)
+        active_voxel_count = self.raster.shape[0]
+        logging.info("total edges in w_ij: %s on voxel set size: %s", final_edge_count, active_voxel_count)
+
+        init_finished = time.time()
+        logging.info("done with full NC algorithm, took: %s", init_finished - init_start)
+
 
     @staticmethod
-    def count_cascades(flash_occurrences):
-        """ Count the number of cascades and label timesteps to their cascade using kmeans
-
-        :param flash_occurrences: Timesteps of flashes
-        :return: number of clusters, and list of flash -> cascade label pairs
+    def build_nc_r_ij(base_raster, clustered_timebins, f0, p):
         """
-        list_of_flash_timesteps = [fo[1] for fo in flash_occurrences]
-        loft = np.array(list(set(list_of_flash_timesteps)))
-        thresh = 9
-        num_clusters = 0
-        for i in range(len(loft) - 1):
-            j = i + 1
-            if loft[j] - loft[i] > thresh:
-                num_clusters += 1
-        km = KMeans(n_clusters=num_clusters)
+        Builds the dataset for the null model by shuffling the base raster
+        f0/p times and computing NC for each shuffled raster.
 
-        km.fit(loft.reshape(-1, 1))
-        q = list(zip(loft, km.labels_))
+        :param base_raster: raster (2D matrix of [voxel, time bin]) for the dataset
+        :param clustered_timebins: List of (time bin ID, cascade ID) pairs
+        :param f0: shuffling factor
+        :param p: significance level
+        :return: list of matrices num nodes x num nodes where each matrix is the NC
+                 results on a shuffled version of the base raster
+        """
 
-        return num_clusters, q
+        nc_r_ij = []
+
+        N_r = int(f0 / p)
+        logging.debug("running NC on %s shuffled copies of raster for null model", N_r)
+
+        durations = []
+        started = time.time()
+        for i in range(N_r):
+            if i > 0 and i % 10 == 0:
+                logging.debug("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
+
+            nc_r_ij.append(NormalizedCount.make_shuffled_nc_ij(base_raster, clustered_timebins))
+            finished = time.time()
+            duration = finished - started
+            durations.append(duration)
+            started = finished
+
+        return nc_r_ij
+
+
+    @staticmethod
+    def build_w_ij(nc_ij, nc_p_ij, a_ij):
+        """
+        Builds the w_ij matrix by setting [i, j] to be
+        a[i, j] * (NC[i, j] - NC^p[i, j])
+        """
+
+        return a_ij * (nc_ij - nc_p_ij)
+
+
+    @staticmethod
+    def build_a_ij(nc_ij, nc_p_ij):
+        """
+        Builds the a_ij matrix by setting it to 1 at [i, j]
+        if NC[i, j] > NC^p[i, j]
+
+        :param nc_ij: 2d matrix of NC results on true data
+        :param nc_p_ij: 2d matrix based on significance level and shuffled NC results
+        :return: 2d matrix as described
+        """
+
+        return nc_ij > nc_p_ij
+
+
+    @staticmethod
+    def build_nc_p_ij(nc_r_ij_3d, p):
+        """
+        Builds the NC^p_ij matrix by fitting a normal distribution
+        to each i,j from NC^r_ij and taking the PPF at 1-p.
+
+        :param nc_r_ij_3d: 3d array indexed [i, j, shuffle number] of shuffled NC results
+        :param p: significance level, lower is for higher confidence
+        :return: 2d matrix NC^p_ij keyed [i, j]
+        """
+
+        nc_p_ij = np.zeros((nc_r_ij_3d.shape[0], nc_r_ij_3d.shape[0]))
+        for i in range(nc_p_ij.shape[0]):
+            for j in range(nc_p_ij.shape[1]):
+                # we assume the PDF over nc^r_ij is normal
+                mean = np.mean(nc_r_ij_3d[i, j, :])
+                stdev = np.std(nc_r_ij_3d[i, j, :])
+
+                # when mean is 0, all of the vals were 0
+                # and constructing norm(0, 0) is a runtime warning
+                if mean == 0:
+                    nc_p_ij[i, j] = 0
+                else:
+                    dist = norm(loc=mean, scale=stdev)
+                    threshold = dist.ppf(1 - p)
+
+                    nc_p_ij[i, j] = threshold
+
+        return nc_p_ij
+
+
+    @staticmethod
+    def make_shuffled_nc_ij(base_raster, clustered_timesteps):
+        # fortunately, clustering of timesteps should be independent of the raster
+        # i.e. clustering of timesteps has nothing to do with the nodes they are
+        # attached to
+        shuffled_raster = nc_shuffler(base_raster, clustered_timesteps)
+
+        num_propagation_steps, ijs_at_each_timebin, ones_indices = NormalizedCount.count_coincident_components(shuffled_raster)
+        new_nc_ij = NormalizedCount.normalized_count(shuffled_raster, ijs_at_each_timebin, num_propagation_steps)
+        return new_nc_ij
+
 
     @staticmethod
     def build_raster(voxel_coords_to_ts, do_3d=False, time_bin_length=1):
@@ -239,22 +379,47 @@ class NormalizedCount:
                 raster[i][int(timestep)] = 1
         return raster, i_voxel_mapping
 
-    def count_coincident_components(self):
+
+    @staticmethod
+    def count_cascades(flash_occurrences):
+        """ Count the number of cascades and label timesteps to their cascade using kmeans
+
+        :param flash_occurrences: Timesteps of flashes
+        :return: number of clusters, and list of flash -> cascade label pairs
+        """
+        list_of_flash_timesteps = [fo[1] for fo in flash_occurrences]
+        loft = np.array(list(set(list_of_flash_timesteps)))
+        thresh = 9
+        num_clusters = 0
+        for i in range(len(loft) - 1):
+            j = i + 1
+            if loft[j] - loft[i] > thresh:
+                num_clusters += 1
+        km = KMeans(n_clusters=num_clusters)
+
+        km.fit(loft.reshape(-1, 1))
+        q = list(zip(loft, km.labels_))
+
+        return num_clusters, q
+
+
+    @staticmethod
+    def count_coincident_components(raster):
         """
 
         :return: number of total propagations (flash moments crossed with coincident (flash at t+x) moments)
         :return: dict of potential propagation steps per timestep
         :return: list of (node, timestep) flash points (1s in the raster)
         """
-        rows = self.raster.shape[0]
-        cols = self.raster.shape[1]
+        rows = raster.shape[0]
+        cols = raster.shape[1]
 
         num_propagation_steps = 0
         ijs_at_each_timebin = {i: [] for i in range(cols)}
         ones_indices = []
         for timebin in range(0, cols):
             for voxel in range(0, rows):
-                if self.raster[voxel, timebin] == 1:
+                if raster[voxel, timebin] == 1:
                     ones_indices.append((voxel, timebin))
 
         for node_time_pair in ones_indices:
@@ -270,27 +435,29 @@ class NormalizedCount:
 
         return num_propagation_steps, ijs_at_each_timebin, ones_indices
 
-    def normalized_count(self, min_t, max_t):
+
+    @staticmethod
+    def normalized_count(raster, ijs_at_each_timebin, num_propagation_steps, min_t=None, max_t=None):
         """Not so inefficient now! Uses a mapping of t -> coincident t, t+1 flashers to calculate NC_ij
 
         NC[i,j] = NC_ij
 
-        :param min_t: min timestep of current cascade
-        :param max_t: max timestep of current cascade
+        :param min_t: min timestep of current cascade (for NC for 1 cascade)
+        :param max_t: max timestep of current cascade (for NC for 1 cascade)
         :return: 2d nc_ij array
         """
-        nc = np.zeros((self.raster.shape[0], self.raster.shape[0]))
-        for t in self.ijs_at_each_timebin.keys():
-            if len(self.ijs_at_each_timebin.get(t)) == 0:
+        nc = np.zeros((raster.shape[0], raster.shape[0]))
+        for t in ijs_at_each_timebin.keys():
+            if len(ijs_at_each_timebin.get(t)) == 0:
                 continue
-            elif min_t > t or t > max_t:
+            elif min_t is not None and max_t is not None and (min_t > t or t > max_t):
                 continue
             else:
-                for (i, j) in self.ijs_at_each_timebin[t]:
-                    nodes_active_at_time_t = set([x for (x, y) in self.ijs_at_each_timebin[t]])
+                for (i, j) in ijs_at_each_timebin[t]:
+                    nodes_active_at_time_t = set([x for (x, y) in ijs_at_each_timebin[t]])
                     nc_ij = (1.0 / len(nodes_active_at_time_t))
                     nc[i, j] += nc_ij
-        normalized_counts = nc / self.num_propagation_steps
+        normalized_counts = nc / num_propagation_steps
         return normalized_counts
 
 
@@ -422,10 +589,15 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
         axys.add_patch(rect)
     return figur, axys
 
+# import sys
+root = logging.getLogger()
+root.setLevel(logging.INFO)
 
-#do_3d = False
-#dw_test = DataWrangler(_FILE, do_3d=do_3d)
-#normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, time_bin_length=2, do_3d=do_3d)
+do_3d = False
+dw_test = DataWrangler(_FILE, do_3d=do_3d)
+normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d, time_bin_length=2)
+# test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
+
 # normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
 # test_random_raster = nc_shuffler(normalized_count.raster, normalized_count.clustered_timesteps)
 

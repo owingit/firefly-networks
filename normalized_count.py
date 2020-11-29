@@ -13,6 +13,7 @@ import helpers
 from scipy.stats import norm
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
+labeled = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv_labeled.csv"
 
 
 class NormalizedCount:
@@ -37,14 +38,16 @@ class NormalizedCount:
         # print(self.nc_ij)
 
         #################
-        #### MAIN NC
+        #    MAIN NC
         #################
         logging.info("building raster")
-        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d=do_3d, time_bin_length=time_bin_length)
+        self.raster, self.i_voxel_mapping = self.build_raster(voxel_coords_to_ts, do_3d=do_3d,
+                                                              time_bin_length=time_bin_length)
         raster_done = time.time()
         logging.info("done with raster, took: %s", raster_done - init_start)
         logging.info("building nc parameters, clustering")
-        self.num_propagation_steps, self.ijs_at_each_timebin, self.ones_indices = self.count_coincident_components(self.raster)
+        self.num_propagation_steps, self.ijs_at_each_timebin, self.ones_indices = self.count_coincident_components(
+            self.raster)
         self.num_cascades, self.clustered_timesteps = self.count_cascades(self.ones_indices)
         params_done = time.time()
         logging.info("done with params, took: %s", params_done - raster_done)
@@ -56,7 +59,7 @@ class NormalizedCount:
         logging.info("done with NC, took: %s", nc_ij_done - params_done)
 
         #################
-        #### NULL MODEL
+        #   NULL MODEL
         #################
         logging.info("starting null model")
 
@@ -309,39 +312,55 @@ class NormalizedCount:
 
 
 class DataWrangler:
-    def __init__(self, file, do_3d=False):
+    def __init__(self, file, do_3d=False, is_labeled=False):
         filename = file
-        if do_3d:
-            self.df = pd.read_csv(filename, names=["x", "y", "z", "t"])
+        if not is_labeled:
+            if do_3d:
+                self.df = pd.read_csv(filename, names=["x", "y", "z", "t"])
+            else:
+                self.df = pd.read_csv(filename, names=["x", "y", "t"])
+            self.df["x_round"] = self.df["x"].apply(lambda x: round(x, 2))
+            self.df["y_round"] = self.df["y"].apply(lambda x: round(x, 2))
+            if do_3d:
+                self.df["z_round"] = self.df["z"].apply(lambda x: round(x, 2))
+            print("unique x:", len(self.df["x"].unique()))
+            print("unique x rounded:", len(self.df["x_round"].unique()))
+            print("unique y:", len(self.df["y"].unique()))
+            print("unique y rounded:", len(self.df["y_round"].unique()))
+            if do_3d:
+                print("unique z:", len(self.df["z"].unique()))
+                print("unique z rounded:", len(self.df["z_round"].unique()))
+
+            self.min_x = self.df["x"].min()
+            self.min_y = self.df["y"].min()
+            if do_3d:
+                self.min_z = self.df["z"].min()
+            else:
+                self.min_z = None
+            self.voxel_length = 0.5
+
+            voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
+            self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1]),
+                                                voxels_to_activation_times.keys()))
+
+            self.real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
+                                                    for key, ts in voxels_to_activation_times.items()
+                                                    }
         else:
-            self.df = pd.read_csv(filename, names=["x", "y", "t"])
-        self.df["x_round"] = self.df["x"].apply(lambda x: round(x, 2))
-        self.df["y_round"] = self.df["y"].apply(lambda x: round(x, 2))
-        if do_3d:
-            self.df["z_round"] = self.df["z"].apply(lambda x: round(x, 2))
-        print("unique x:", len(self.df["x"].unique()))
-        print("unique x rounded:", len(self.df["x_round"].unique()))
-        print("unique y:", len(self.df["y"].unique()))
-        print("unique y rounded:", len(self.df["y_round"].unique()))
-        if do_3d:
-            print("unique z:", len(self.df["z"].unique()))
-            print("unique z rounded:", len(self.df["z_round"].unique()))
+            self.df = pd.read_csv(filename, names=["label", "t"])
+            labels_and_times = {}
+            for index, row in self.df.iterrows():
+                label = row["label"]
+                t = row["t"]
 
-        self.min_x = self.df["x"].min()
-        self.min_y = self.df["y"].min()
-        if do_3d:
-            self.min_z = self.df["z"].min()
-        else:
-            self.min_z = None
-        self.voxel_length = 0.5
+                if label in labels_and_times:
+                    labels_and_times[label].append(t)
+                else:
+                    labels_and_times[label] = [t]
 
-        voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
-        self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1]),
-                                            voxels_to_activation_times.keys()))
-
-        self.real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
-                                                for key, ts in voxels_to_activation_times.items()
-                                                }
+            # make a voxel = (label, label, label) in the labeled case
+            self.real_data_to_activation_times = {(key, key, key): ts
+                                                  for key, ts in labels_and_times.items()}
 
     @staticmethod
     def adjust_start_0(val, overall_min):
@@ -442,8 +461,14 @@ root.setLevel(logging.INFO)
 
 do_3d = False
 dw_test = DataWrangler(_FILE, do_3d=do_3d)
-normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d, time_bin_length=2)
-nc = normalized_count
+time_bin_length = 2
+# normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d,
+#                                    time_bin_length=time_bin_length)
+labeled_data = DataWrangler(labeled, is_labeled=True)
+normalized_count_on_labels = NormalizedCount(labeled_data.real_data_to_activation_times, do_3d=do_3d,
+                                             time_bin_length=time_bin_length)
+print(normalized_count_on_labels)
+
 # test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
 
 # normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)

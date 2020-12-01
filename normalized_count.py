@@ -8,12 +8,14 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import logging
 import time
+import os
 
 import helpers
 from scipy.stats import norm
 
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
-labeled = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv_labeled.csv"
+_LABELED = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv_labeled.csv"
+labeled_data_folder = 'labeled_data'
 
 
 class NormalizedCount:
@@ -315,6 +317,8 @@ class NormalizedCount:
 class DataWrangler:
     def __init__(self, file, do_3d=False, is_labeled=False):
         filename = file
+        self.dfs = []
+        self.real_voxels_to_activation_times = []
         if not is_labeled:
             if do_3d:
                 self.df = pd.read_csv(filename, names=["x", "y", "z", "t"])
@@ -338,31 +342,56 @@ class DataWrangler:
                 self.min_z = self.df["z"].min()
             else:
                 self.min_z = None
-            self.voxel_length = 0.5
+            self.voxel_length = 0.1
 
             voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
             self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1]),
                                                 voxels_to_activation_times.keys()))
 
-            self.real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
-                                                    for key, ts in voxels_to_activation_times.items()
-                                                    }
+            real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
+                                               for key, ts in voxels_to_activation_times.items()
+
+                                               }
+            self.dfs.append(self.df)
+            self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
         else:
-            self.df = pd.read_csv(filename, names=["x", "y", "label", "t"])
-            labels_and_times = {}
-            for index, row in self.df.iterrows():
-                label = row["label"]
-                t = row["t"]
+            if not os.path.isdir(file):
+                self.df = pd.read_csv(filename, names=["x", "y", "label", "t"])
+                labels_and_times = {}
+                for index, row in self.df.iterrows():
+                    label = row["label"]
+                    t = row["t"]
 
-                if label in labels_and_times:
-                    labels_and_times[label].append(t)
-                else:
-                    labels_and_times[label] = [t]
+                    if label in labels_and_times:
+                        labels_and_times[label].append(t)
+                    else:
+                        labels_and_times[label] = [t]
 
-            # make a voxel = (label, label, label) in the labeled case
-            self.real_voxels_to_activation_times = {(key, key, key): ts
-                                                    for key, ts in labels_and_times.items()
-                                                    }
+                # make a voxel = (label, label, label) in the labeled case
+                real_voxels_to_activation_times = {(key, key, key): ts
+                                                   for key, ts in labels_and_times.items()
+                                                   }
+                self.dfs.append(self.df)
+                self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
+            else:
+                for _f in os.listdir(file):
+                    df = pd.read_csv(os.path.abspath(file+'/'+_f), names=["x", "y", "label", "t"])
+                    labels_and_times = {}
+                    for index, row in df.iterrows():
+                        label = row["label"]
+                        t = row["t"]
+
+                        if label in labels_and_times:
+                            labels_and_times[label].append(t)
+                        else:
+                            labels_and_times[label] = [t]
+
+                    # make a voxel = (label, label, label) in the labeled case
+                    real_voxels_to_activation_times = {(key, key, key): ts
+                                                       for key, ts in labels_and_times.items()
+                                                       }
+                    self.dfs.append(df)
+                    self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
 
     @staticmethod
     def adjust_start_0(val, overall_min):
@@ -464,41 +493,48 @@ def time_bin_parameter_sweep():
     v = 'Voxeled'
     l = 'Labeled'
     # time_bin_lengths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    time_bin_lengths = [1, 2, 5, 6, 7]
+    time_bin_lengths = [6, 7, 8]
     do_3d = False
-    dw_test = DataWrangler(_FILE, do_3d=do_3d)
+    # dw_test = DataWrangler(_FILE, do_3d=do_3d)
     normalized_count_adjacency_matrices = {}
     for time_bin_length in time_bin_lengths:
-        normalized_count_adjacency_matrices[time_bin_length] = {v: 0,
-                                                                l: 0}
+        normalized_count_adjacency_matrices[time_bin_length] = {v: [],
+                                                                l: []}
     for time_bin_length in time_bin_lengths:
         root = logging.getLogger()
         root.setLevel(logging.INFO)
-        normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d,
-                                           time_bin_length=time_bin_length)
-        normalized_count_adjacency_matrices[time_bin_length][v] = normalized_count.a_ij
+        # for rvtat in dw_test.real_voxels_to_activation_times:
+        #     normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
+        #                                        time_bin_length=time_bin_length)
+        #     normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
 
-        # labeled_data = DataWrangler(labeled, is_labeled=True)
-        # normalized_count_on_labels = NormalizedCount(labeled_data.real_voxels_to_activation_times, do_3d=do_3d,
-        #                                              time_bin_length=time_bin_length)
-        # normalized_count_adjacency_matrices[time_bin_length][l] = normalized_count_on_labels.a_ij
-    logging.info("total edges in voxeled a_ij: ")
-    for time_bin_length in time_bin_lengths:
-        logging.info("Time bin size: %s, Edges: %s, ", time_bin_length,
-                     np.count_nonzero(normalized_count_adjacency_matrices[time_bin_length][v]))
-        np.savetxt("TimeBin_{}_voxeled.txt".format(time_bin_length),
-                   normalized_count_adjacency_matrices[time_bin_length][v])
+        labeled_data = DataWrangler(labeled_data_folder, is_labeled=True)
+        for rvtat_ in labeled_data.real_voxels_to_activation_times:
+            normalized_count_on_labels = NormalizedCount(rvtat_, do_3d=do_3d,
+                                                         time_bin_length=time_bin_length)
+            normalized_count_adjacency_matrices[time_bin_length][l].append(normalized_count_on_labels.a_ij)
+    # logging.info("total edges in voxeled a_ij: ")
+    # for time_bin_length in time_bin_lengths:
+    #     logging.info("Time bin size: %s, Edges: %s, ", time_bin_length,
+    #                  np.count_nonzero(normalized_count_adjacency_matrices[time_bin_length][v][0]))
+    #     np.savetxt("TimeBin_{}_voxeled.txt".format(time_bin_length),
+    #                normalized_count_adjacency_matrices[time_bin_length][v][0])
     logging.info("total edges in labeled a_ij: ")
     for time_bin_length in time_bin_lengths:
-        logging.info("Time bin size: %s, Edges: %s, ", time_bin_length,
-                     np.count_nonzero(normalized_count_adjacency_matrices[time_bin_length][l]))
-        np.savetxt("TimeBin_{}_labeled.txt".format(time_bin_length),
-                   normalized_count_adjacency_matrices[time_bin_length][l])
+        logging.info("Time bin size: %s", time_bin_length)
+        for i, aij in enumerate(normalized_count_adjacency_matrices[time_bin_length][l]):
+            logging.info("Edges: %s", np.count_nonzero(aij))
+            np.savetxt("TimeBin_{}_labeled_{}.txt".format(time_bin_length, i),
+                       aij)
 
 time_bin_parameter_sweep()
-labeled_g_tb_6 = np.loadtxt("TimeBin_6_labeled.txt")
-helpers.plot_directed_degree_dist(labeled_g_tb_6)
-helpers.plot_cc(labeled_g_tb_6)
+nets = []
+for i in range(25):
+    labeled_g_tb_6 = np.loadtxt("TimeBin_6_labeled.txt")
+    nets.append(labeled_g_tb_6)
+
+helpers.plot_directed_degree_dist(nets)
+helpers.plot_cc(nets)
 
 # test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
 

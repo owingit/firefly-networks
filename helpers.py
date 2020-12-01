@@ -63,7 +63,7 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         return True
 
     attempts = 0
-    max_attempts = 50
+    max_attempts = 100
     # Try a single shuffle, returns false if the proposed shuffle has equal time bins
     # (the condition for a retry). This loop is to avoid an infinite loop in an edge
     # case in which, for some reason, the only possible shuffles all have the same   time
@@ -190,9 +190,13 @@ def degree_histogram_directed(G, in_degree=False, out_degree=False):
     return freq
 
 
-def plot_directed_degree_dist(G):
-    in_degree_freq = degree_histogram_directed(G, in_degree=True)
-    out_degree_freq = degree_histogram_directed(G, out_degree=True)
+def plot_directed_degree_dist(list_of_Gs):
+    in_degree_freq = []
+    out_degree_freq = []
+    for G in list_of_Gs:
+        in_degree_freq.extend(degree_histogram_directed(G, in_degree=True))
+        out_degree_freq.extend(degree_histogram_directed(G, out_degree=True))
+
     plt.figure(figsize=(12, 8))
     plt.loglog(range(len(in_degree_freq)), in_degree_freq, 'go-', label='in-degree')
     plt.loglog(range(len(out_degree_freq)), out_degree_freq, 'bo-', label='out-degree')
@@ -201,9 +205,10 @@ def plot_directed_degree_dist(G):
     plt.show()
 
 
-def plot_cc(G):
-    gc = G.subgraph(max(nx.weakly_connected_components(G)))
-    lcc = nx.clustering(gc)
+def plot_cc(list_of_Gs):
+    for G in [list_of_Gs[0]]:
+        gc = G.subgraph(max(nx.weakly_connected_components(G)))
+        lcc = nx.clustering(gc)
 
     cmap = plt.get_cmap('autumn')
     norm = plt.Normalize(0, max(lcc.values()))

@@ -514,10 +514,10 @@ def time_bin_parameter_sweep():
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
-time_bin_parameter_sweep()
+# time_bin_parameter_sweep()
 nets = []
 for i in range(25):
-    labeled_g_tb_6 = np.loadtxt("TimeBin_6_labeled.txt_{}".format(i))
+    labeled_g_tb_6 = np.loadtxt("TimeBin_6_labeled_{}.txt".format(i))
     nets.append(labeled_g_tb_6)
 
 helpers.plot_directed_degree_dist(nets)

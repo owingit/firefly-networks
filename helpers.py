@@ -191,6 +191,10 @@ def degree_histogram_directed(G, in_degree=False, out_degree=False):
 
 
 def plot_directed_degree_dist(list_of_Gs):
+    """Plots in-degree and out-degree distribution across all graphs in list
+
+    :param list_of_Gs: list of nx graphs made from np a_ijs
+    """
     in_degree_freq = []
     out_degree_freq = []
     for G in list_of_Gs:
@@ -206,6 +210,11 @@ def plot_directed_degree_dist(list_of_Gs):
 
 
 def plot_cc(list_of_Gs):
+    """Plots the clustering coefficient for graphs in the list passed.
+
+    Currently only plots the first one; easily extensible to be avgs, all graphs, etc
+    :param list_of_Gs: list of nx graphs made from np a_ij
+    """
     for G in [list_of_Gs[0]]:
         gc = G.subgraph(max(nx.weakly_connected_components(G)))
         lcc = nx.clustering(gc)

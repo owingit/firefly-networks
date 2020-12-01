@@ -356,42 +356,29 @@ class DataWrangler:
             self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
         else:
             if not os.path.isdir(file):
-                self.df = pd.read_csv(filename, names=["x", "y", "label", "t"])
-                labels_and_times = {}
-                for index, row in self.df.iterrows():
-                    label = row["label"]
-                    t = row["t"]
-
-                    if label in labels_and_times:
-                        labels_and_times[label].append(t)
-                    else:
-                        labels_and_times[label] = [t]
-
-                # make a voxel = (label, label, label) in the labeled case
-                real_voxels_to_activation_times = {(key, key, key): ts
-                                                   for key, ts in labels_and_times.items()
-                                                   }
-                self.dfs.append(self.df)
-                self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
+                self.read_from_csv_into_df(filename)
             else:
                 for _f in os.listdir(file):
-                    df = pd.read_csv(os.path.abspath(file+'/'+_f), names=["x", "y", "label", "t"])
-                    labels_and_times = {}
-                    for index, row in df.iterrows():
-                        label = row["label"]
-                        t = row["t"]
+                    self.read_from_csv_into_df(file+'/'+_f)
 
-                        if label in labels_and_times:
-                            labels_and_times[label].append(t)
-                        else:
-                            labels_and_times[label] = [t]
+    def read_from_csv_into_df(self, filename):
+        df = pd.read_csv(filename, names=["x", "y", "label", "t"])
+        labels_and_times = {}
+        for index, row in self.df.iterrows():
+            label = row["label"]
+            t = row["t"]
 
-                    # make a voxel = (label, label, label) in the labeled case
-                    real_voxels_to_activation_times = {(key, key, key): ts
-                                                       for key, ts in labels_and_times.items()
-                                                       }
-                    self.dfs.append(df)
-                    self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
+            if label in labels_and_times:
+                labels_and_times[label].append(t)
+            else:
+                labels_and_times[label] = [t]
+
+        # make a voxel = (label, label, label) in the labeled case
+        real_voxels_to_activation_times = {(key, key, key): ts
+                                           for key, ts in labels_and_times.items()
+                                           }
+        self.dfs.append(df)
+        self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
 
     @staticmethod
     def adjust_start_0(val, overall_min):
@@ -492,41 +479,41 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 def time_bin_parameter_sweep():
     v = 'Voxeled'
     l = 'Labeled'
-    # time_bin_lengths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    time_bin_lengths = [6, 7, 8]
+    time_bin_lengths = [1, 2, 5, 6, 7, 8]
     do_3d = False
-    # dw_test = DataWrangler(_FILE, do_3d=do_3d)
+    dw_test = DataWrangler(_FILE, do_3d=do_3d)
     normalized_count_adjacency_matrices = {}
     for time_bin_length in time_bin_lengths:
         normalized_count_adjacency_matrices[time_bin_length] = {v: [],
                                                                 l: []}
     for time_bin_length in time_bin_lengths:
-        root = logging.getLogger()
-        root.setLevel(logging.INFO)
-        # for rvtat in dw_test.real_voxels_to_activation_times:
-        #     normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
-        #                                        time_bin_length=time_bin_length)
-        #     normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
+        for rvtat in dw_test.real_voxels_to_activation_times:
+            normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
+                                               time_bin_length=time_bin_length)
+            normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
 
         labeled_data = DataWrangler(labeled_data_folder, is_labeled=True)
         for rvtat_ in labeled_data.real_voxels_to_activation_times:
             normalized_count_on_labels = NormalizedCount(rvtat_, do_3d=do_3d,
                                                          time_bin_length=time_bin_length)
             normalized_count_adjacency_matrices[time_bin_length][l].append(normalized_count_on_labels.a_ij)
-    # logging.info("total edges in voxeled a_ij: ")
-    # for time_bin_length in time_bin_lengths:
-    #     logging.info("Time bin size: %s, Edges: %s, ", time_bin_length,
-    #                  np.count_nonzero(normalized_count_adjacency_matrices[time_bin_length][v][0]))
-    #     np.savetxt("TimeBin_{}_voxeled.txt".format(time_bin_length),
-    #                normalized_count_adjacency_matrices[time_bin_length][v][0])
+    logging.info("total edges in voxeled a_ij: ")
+    for time_bin_length in time_bin_lengths:
+        logging.info("Time bin size: %s, Edges: %s, ", time_bin_length,
+                     np.count_nonzero(normalized_count_adjacency_matrices[time_bin_length][v][0]))
+        np.savetxt("a_ij_data/TimeBin_{}_voxeled.txt".format(time_bin_length),
+                   normalized_count_adjacency_matrices[time_bin_length][v][0])
     logging.info("total edges in labeled a_ij: ")
     for time_bin_length in time_bin_lengths:
         logging.info("Time bin size: %s", time_bin_length)
         for i, aij in enumerate(normalized_count_adjacency_matrices[time_bin_length][l]):
             logging.info("Edges: %s", np.count_nonzero(aij))
-            np.savetxt("TimeBin_{}_labeled_{}.txt".format(time_bin_length, i),
+            np.savetxt("a_ij_data/TimeBin_{}_labeled_{}.txt".format(time_bin_length, i),
                        aij)
 
+
+root = logging.getLogger()
+root.setLevel(logging.INFO)
 time_bin_parameter_sweep()
 nets = []
 for i in range(25):

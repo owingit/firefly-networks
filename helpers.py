@@ -63,10 +63,10 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         return True
 
     attempts = 0
-    max_attempts = 100
+    max_attempts = 10
     # Try a single shuffle, returns false if the proposed shuffle has equal time bins
     # (the condition for a retry). This loop is to avoid an infinite loop in an edge
-    # case in which, for some reason, the only possible shuffles all have the same   time
+    # case in which, for some reason, the only possible shuffles all have the same time
     # bin (like a sub-raster consisting only of a single time bin).
     while attempts < max_attempts:
         if attempt_shuffle():
@@ -162,13 +162,11 @@ def degree_histogram_directed(G, in_degree=False, out_degree=False):
        A graph
     in_degree : bool
     out_degree : bool
-
     Returns
     -------
     hist : list
        A list of frequencies of degrees.
        The degree values are the index in the list.
-
     Notes
     -----
     Note: the bins are width one, hence len(list) can be large
@@ -195,15 +193,26 @@ def plot_directed_degree_dist(list_of_Gs):
 
     :param list_of_Gs: list of nx graphs made from np a_ijs
     """
-    in_degree_freq = []
-    out_degree_freq = []
+    in_degree_freq = {}
+    out_degree_freq = {}
     for G in list_of_Gs:
-        in_degree_freq.extend(degree_histogram_directed(G, in_degree=True))
-        out_degree_freq.extend(degree_histogram_directed(G, out_degree=True))
+        in_degrees = degree_histogram_directed(G, in_degree=True)
+        for degree in range(len(in_degrees)):
+            if in_degree_freq.get(degree):
+                in_degree_freq[degree] += in_degrees[degree]
+            else:
+                in_degree_freq[degree] = in_degrees[degree]
+        out_degrees = degree_histogram_directed(G, out_degree=True)
+        for o_degree in range(len(out_degrees)):
+            if out_degree_freq.get(o_degree):
+                out_degree_freq[o_degree] += out_degrees[o_degree]
+            else:
+                out_degree_freq[o_degree] = out_degrees[o_degree]
 
     plt.figure(figsize=(12, 8))
-    plt.loglog(range(len(in_degree_freq)), in_degree_freq, 'go-', label='in-degree')
-    plt.loglog(range(len(out_degree_freq)), out_degree_freq, 'bo-', label='out-degree')
+    plt.loglog(list(in_degree_freq.keys()), list(in_degree_freq.values()), 'go-', label='in-degree dist')
+    plt.loglog(list(out_degree_freq.keys()), list(out_degree_freq.values()), 'bo-', label='out-degree dist')
+    plt.legend()
     plt.xlabel('Degree')
     plt.ylabel('Frequency')
     plt.show()
@@ -211,8 +220,8 @@ def plot_directed_degree_dist(list_of_Gs):
 
 def plot_cc(list_of_Gs):
     """Plots the clustering coefficient for graphs in the list passed.
-
     Currently only plots the first one; easily extensible to be avgs, all graphs, etc
+
     :param list_of_Gs: list of nx graphs made from np a_ij
     """
     for G in [list_of_Gs[0]]:

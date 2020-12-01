@@ -516,9 +516,10 @@ root = logging.getLogger()
 root.setLevel(logging.INFO)
 # time_bin_parameter_sweep()
 nets = []
+time_bin_to_plot = 7
 for i in range(25):
-    labeled_g_tb_6 = np.loadtxt("TimeBin_6_labeled_{}.txt".format(i))
-    nets.append(labeled_g_tb_6)
+    labeled_g_tb_ = np.loadtxt("TimeBin_{}_labeled_{}.txt".format(time_bin_to_plot, i))
+    nets.append(nx.from_numpy_matrix(labeled_g_tb_, create_using=nx.DiGraph))
 
 helpers.plot_directed_degree_dist(nets)
 helpers.plot_cc(nets)

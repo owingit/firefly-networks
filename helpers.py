@@ -1,5 +1,9 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.cm import ScalarMappable
+
+import networkx as nx
 
 import logging
 
@@ -59,10 +63,10 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         return True
 
     attempts = 0
-    max_attempts = 10
+    max_attempts = 100
     # Try a single shuffle, returns false if the proposed shuffle has equal time bins
     # (the condition for a retry). This loop is to avoid an infinite loop in an edge
-    # case in which, for some reason, the only possible shuffles all have the same time
+    # case in which, for some reason, the only possible shuffles all have the same   time
     # bin (like a sub-raster consisting only of a single time bin).
     while attempts < max_attempts:
         if attempt_shuffle():
@@ -147,3 +151,85 @@ def nc_shuffler(raster, clustered_timebins):
         shuffle_cascade(new_raster, min_bin, max_bin)
 
     return new_raster
+
+
+def degree_histogram_directed(G, in_degree=False, out_degree=False):
+    """Return a list of the frequency of each degree value.
+    from https://stackoverflow.com/questions/53958700/plotting-the-degree-distribution-of-a-graph-using-nx-degree-histogram
+    Parameters
+    ----------
+    G : Networkx graph
+       A graph
+    in_degree : bool
+    out_degree : bool
+
+    Returns
+    -------
+    hist : list
+       A list of frequencies of degrees.
+       The degree values are the index in the list.
+
+    Notes
+    -----
+    Note: the bins are width one, hence len(list) can be large
+    (Order(number_of_edges))
+    """
+    nodes = G.nodes()
+    if in_degree:
+        in_degree = dict(G.in_degree())
+        degseq=[in_degree.get(k, 0) for k in nodes]
+    elif out_degree:
+        out_degree = dict(G.out_degree())
+        degseq=[out_degree.get(k, 0) for k in nodes]
+    else:
+        degseq=[v for k, v in G.degree()]
+    dmax = max(degseq)+1
+    freq = [ 0 for d in range(dmax) ]
+    for d in degseq:
+        freq[d] += 1
+    return freq
+
+
+def plot_directed_degree_dist(list_of_Gs):
+    """Plots in-degree and out-degree distribution across all graphs in list
+
+    :param list_of_Gs: list of nx graphs made from np a_ijs
+    """
+    in_degree_freq = []
+    out_degree_freq = []
+    for G in list_of_Gs:
+        in_degree_freq.extend(degree_histogram_directed(G, in_degree=True))
+        out_degree_freq.extend(degree_histogram_directed(G, out_degree=True))
+
+    plt.figure(figsize=(12, 8))
+    plt.loglog(range(len(in_degree_freq)), in_degree_freq, 'go-', label='in-degree')
+    plt.loglog(range(len(out_degree_freq)), out_degree_freq, 'bo-', label='out-degree')
+    plt.xlabel('Degree')
+    plt.ylabel('Frequency')
+    plt.show()
+
+
+def plot_cc(list_of_Gs):
+    """Plots the clustering coefficient for graphs in the list passed.
+
+    Currently only plots the first one; easily extensible to be avgs, all graphs, etc
+    :param list_of_Gs: list of nx graphs made from np a_ij
+    """
+    for G in [list_of_Gs[0]]:
+        gc = G.subgraph(max(nx.weakly_connected_components(G)))
+        lcc = nx.clustering(gc)
+
+    cmap = plt.get_cmap('autumn')
+    norm = plt.Normalize(0, max(lcc.values()))
+    node_colors = [cmap(norm(lcc[node])) for node in gc.nodes]
+
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 4))
+    nx.draw_spring(gc, node_color=node_colors, with_labels=True, ax=ax1)
+    fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label='Clustering', shrink=0.95, ax=ax1)
+
+    ax2.hist(lcc.values(), bins=10)
+    ax2.set_xlabel('Clustering')
+    ax2.set_ylabel('Frequency')
+
+    plt.tight_layout()
+    plt.show()

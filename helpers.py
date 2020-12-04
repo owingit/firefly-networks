@@ -5,6 +5,8 @@ from matplotlib.cm import ScalarMappable
 
 import networkx as nx
 
+import copy
+
 import logging
 
 
@@ -63,7 +65,7 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
         return True
 
     attempts = 0
-    max_attempts = 10
+    max_attempts = 500
     # Try a single shuffle, returns false if the proposed shuffle has equal time bins
     # (the condition for a retry). This loop is to avoid an infinite loop in an edge
     # case in which, for some reason, the only possible shuffles all have the same time
@@ -209,7 +211,7 @@ def plot_directed_degree_dist(list_of_Gs):
             else:
                 out_degree_freq[o_degree] = out_degrees[o_degree]
 
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(12, 6))
     plt.loglog(list(in_degree_freq.keys()), list(in_degree_freq.values()), 'go-', label='in-degree dist')
     plt.loglog(list(out_degree_freq.keys()), list(out_degree_freq.values()), 'bo-', label='out-degree dist')
     plt.legend()
@@ -242,3 +244,66 @@ def plot_cc(list_of_Gs):
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascade_endpoints, time_bin_length):
+    """Plots nodes and edges of voxels / labeled agents in cascades
+
+    :param list_of_Gs: list of nx graphs made from np a_ij
+    """
+    for index in range(len(list_of_cascade_startpoints)):
+        cascade_startpoint = list_of_cascade_startpoints[index] / time_bin_length
+        cascade_endpoint = list_of_cascade_endpoints[index] / time_bin_length
+        G = copy.deepcopy(list_of_Gs[0])
+        cmap = plt.get_cmap('autumn')
+
+        norm = plt.Normalize(cascade_startpoint, cascade_endpoint)
+        nodes_in_cascade = [node for node in G.nodes if (
+                 any([cascade_endpoint >= time >= cascade_startpoint for time in G.nodes[node]['times']]))]
+        node_effective_times = {node: G.nodes[node]['times'] for node in nodes_in_cascade}
+        for node in node_effective_times.keys():
+            times_to_remove = []
+            for time in node_effective_times[node]:
+                if time < cascade_startpoint:
+                    times_to_remove.append(time)
+                elif time > cascade_endpoint:
+                    times_to_remove.append(time)
+            for time in times_to_remove:
+                node_effective_times[node].remove(time)
+        node_colors = cmap(norm([min(node_effective_times[node]) for node in nodes_in_cascade]))
+        nodes_to_remove = []
+
+        for n in G.nodes():
+            if n not in nodes_in_cascade:
+                nodes_to_remove.append(n)
+        for node in nodes_to_remove:
+            G.remove_node(node)
+        edges_to_remove = []
+        for u, v in G.edges():
+            if min(node_effective_times[v]) < min(node_effective_times[u]):
+                edges_to_remove.append((u, v))
+        degrees = dict(G.degree())
+
+        for edge in edges_to_remove:
+            G.remove_edge(edge[0], edge[1])
+
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+        xs = [G.nodes[node]['coords'][0] for node in G.nodes()]
+        ys = [G.nodes[node]['coords'][1] for node in G.nodes()]
+        node_indices = list(G.nodes())
+        graph_layout = dict(zip(node_indices, zip(xs, ys)))
+
+        nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors, node_size=[(v+1)*10 for v in degrees.values()])
+        ax1.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+        limits = plt.axis('on')
+        ax1.set_xlabel('X embedded position')
+        ax1.set_ylabel('Y embedded position')
+        ax1.set_xlim(-10, 10)
+        ax1.set_ylim(-10, 10)
+        cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label='Time of flash in cascade', shrink=0.95, ax=ax1)
+        cblocations = [cascade_startpoint + 2, cascade_endpoint - 2]
+        cblabels = ['Earlier', 'Later']
+        cbar.set_ticks(cblocations)
+        cbar.set_ticklabels(cblabels)
+
+        plt.show()

@@ -70,12 +70,15 @@ def do_single_shuffle(sub_raster, voxel_bin_pairs):
     # (the condition for a retry). This loop is to avoid an infinite loop in an edge
     # case in which, for some reason, the only possible shuffles all have the same time
     # bin (like a sub-raster consisting only of a single time bin).
-    while attempts < max_attempts:
-        if attempt_shuffle():
-            return
-        attempts += 1
+    try:
+        while attempts < max_attempts:
+            if attempt_shuffle():
+                return
+            attempts += 1
 
-    raise Exception("exceeded maximum shuffle attempts")
+        raise BaseException("exceeded maximum shuffle attempts")
+    except BaseException:
+        pass
 
 
 def shuffle_cascade(new_raster, min_bin, max_bin):
@@ -139,20 +142,25 @@ def nc_shuffler(raster, clustered_timebins):
     # min/max bin for each cascade
     cluster_bin_df = pd.DataFrame(clustered_timebins, columns=["binID", "cascadeID"])
     cascadeIDs = list(cluster_bin_df["cascadeID"].unique())
+    num_cascades = 0
+    num_length_one_cascades = 0
     for cascade_id in cascadeIDs:
+        num_cascades += 1
         # determine min/max bin for the cascade
         filtered = cluster_bin_df.loc[cluster_bin_df["cascadeID"] == cascade_id]
         min_bin = filtered["binID"].min()
         max_bin = filtered["binID"].max()
-
-        # sanity check
-        if min_bin == max_bin:
-            print("min and max bins are equal: %s, this shouldn't happen" % min_bin)
-            raise Exception()
+        try:
+            # sanity check
+            if min_bin == max_bin:
+                print("min and max bins are equal: %s, this shouldn't happen" % min_bin)
+                raise Exception()
+        except Exception:
+            num_length_one_cascades += 1
 
         shuffle_cascade(new_raster, min_bin, max_bin)
 
-    return new_raster
+    return new_raster, num_cascades, num_length_one_cascades
 
 
 def degree_histogram_directed(G, in_degree=False, out_degree=False):
@@ -252,8 +260,8 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
     :param list_of_Gs: list of nx graphs made from np a_ij
     """
     for index in range(len(list_of_cascade_startpoints)):
-        cascade_startpoint = list_of_cascade_startpoints[index] / time_bin_length
-        cascade_endpoint = list_of_cascade_endpoints[index] / time_bin_length
+        cascade_startpoint = list_of_cascade_startpoints[index]
+        cascade_endpoint = list_of_cascade_endpoints[index]
         G = copy.deepcopy(list_of_Gs[0])
         cmap = plt.get_cmap('autumn')
 
@@ -298,12 +306,12 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
         limits = plt.axis('on')
         ax1.set_xlabel('X embedded position')
         ax1.set_ylabel('Y embedded position')
-        ax1.set_xlim(-10, 10)
-        ax1.set_ylim(-10, 10)
+        ax1.set_xlim(-15, 15)
+        ax1.set_ylim(-15, 15)
         cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label='Time of flash in cascade', shrink=0.95, ax=ax1)
         cblocations = [cascade_startpoint + 2, cascade_endpoint - 2]
         cblabels = ['Earlier', 'Later']
         cbar.set_ticks(cblocations)
         cbar.set_ticklabels(cblabels)
-
+        plt.title('Cascade {}'.format(index))
         plt.show()

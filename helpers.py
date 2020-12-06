@@ -254,11 +254,13 @@ def plot_cc(list_of_Gs):
     plt.show()
 
 
-def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascade_endpoints, time_bin_length):
+def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascade_endpoints, do_networks=False):
     """Plots nodes and edges of voxels / labeled agents in cascades
 
     :param list_of_Gs: list of nx graphs made from np a_ij
     """
+    seed_set_sizes = []
+    final_set_sizes = []
     for index in range(len(list_of_cascade_startpoints)):
         cascade_startpoint = list_of_cascade_startpoints[index]
         cascade_endpoint = list_of_cascade_endpoints[index]
@@ -286,6 +288,13 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
                 nodes_to_remove.append(n)
         for node in nodes_to_remove:
             G.remove_node(node)
+
+        first_node_time = min([time for x in node_effective_times.keys() for time in node_effective_times[x]])
+        seed_set = [node for node in nodes_in_cascade if first_node_time in G.nodes[node]['times']]
+        len_seed_set = len(seed_set)
+        seed_set_sizes.append(len_seed_set)
+        num_nodes_in_cascade = len(G.nodes())
+        final_set_sizes.append(num_nodes_in_cascade)
         edges_to_remove = []
         for u, v in G.edges():
             if min(node_effective_times[v]) < min(node_effective_times[u]):
@@ -294,24 +303,58 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
 
         for edge in edges_to_remove:
             G.remove_edge(edge[0], edge[1])
+        if do_networks:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            xs = [G.nodes[node]['coords'][0] for node in G.nodes()]
+            ys = [G.nodes[node]['coords'][1] for node in G.nodes()]
+            node_indices = list(G.nodes())
+            graph_layout = dict(zip(node_indices, zip(xs, ys)))
 
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-        xs = [G.nodes[node]['coords'][0] for node in G.nodes()]
-        ys = [G.nodes[node]['coords'][1] for node in G.nodes()]
-        node_indices = list(G.nodes())
-        graph_layout = dict(zip(node_indices, zip(xs, ys)))
+            nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors, node_size=[(v+1)*10 for v in degrees.values()])
+            ax1.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+            limits = plt.axis('on')
+            ax1.set_xlabel('X embedded position')
+            ax1.set_ylabel('Y embedded position')
+            ax1.set_xlim(-15, 15)
+            ax1.set_ylim(-15, 15)
+            cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label='Time of flash in cascade', shrink=0.95, ax=ax1)
+            cblocations = [cascade_startpoint + 2, cascade_endpoint - 2]
+            cblabels = ['Earlier', 'Later']
+            cbar.set_ticks(cblocations)
+            cbar.set_ticklabels(cblabels)
+            plt.title('Cascade {}: {} nodes -> {} nodes'.format(index, len_seed_set, num_nodes_in_cascade))
+            plt.show()
+    return seed_set_sizes, final_set_sizes
 
-        nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors, node_size=[(v+1)*10 for v in degrees.values()])
-        ax1.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-        limits = plt.axis('on')
-        ax1.set_xlabel('X embedded position')
-        ax1.set_ylabel('Y embedded position')
-        ax1.set_xlim(-15, 15)
-        ax1.set_ylim(-15, 15)
-        cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label='Time of flash in cascade', shrink=0.95, ax=ax1)
-        cblocations = [cascade_startpoint + 2, cascade_endpoint - 2]
-        cblabels = ['Earlier', 'Later']
-        cbar.set_ticks(cblocations)
-        cbar.set_ticklabels(cblabels)
-        plt.title('Cascade {}'.format(index))
-        plt.show()
+
+def plot_size_distributions(initial_set_distributions, final_set_distributions, start_of_list):
+    fig, ((ax1), (ax2), (ax3)) = plt.subplots(ncols=3, nrows=1)
+    ax1.set_xlim([-1, max([item for d in initial_set_distributions for item in d]) + 5])
+    ax1.set_title('Seed node set size')
+    ax1.set_xlabel('Num flashers at beginning of cascades')
+    ax1.set_ylabel('Count')
+    for e, initial_set_distribution in enumerate(initial_set_distributions):
+        cascade_length = e + start_of_list
+        ax1.hist(initial_set_distribution, label='Cascade size 0.{}s'.format(cascade_length),
+                 bins=10, alpha=0.5, rwidth=0.5, align='left', density=True)
+        ax1.legend()
+
+    ax2.set_xlim([-1, max([item for d in final_set_distributions for item in d]) + 5])
+    ax2.set_title('Cascade size dict')
+    ax2.set_xlabel('Num flashers at end of cascades')
+    ax2.set_ylabel('Count')
+
+    ax3.set_xlabel('Num flashers at end of cascades')
+    ax3.set_ylabel('Count')
+    ax3.set_title('Log-log of cascade size')
+
+    for i, final_set_distribution in enumerate(final_set_distributions):
+        cascade_length = i + start_of_list
+        n, x, _ = ax2.hist(final_set_distribution, label='Cascade size 0.{}s'.format(cascade_length),
+                           bins=10, alpha=0.5, rwidth=0.5, align='left', density=True)
+        ax2.legend()
+        bin_centers = 0.5 * (x[1:] + x[:-1])
+        ax3.loglog(bin_centers, n, label='Cascade size 0.{}s'.format(cascade_length))
+        ax3.legend()
+
+    plt.show()

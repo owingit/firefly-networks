@@ -16,7 +16,7 @@ from scipy.stats import norm
 
 _REAL_DATA_FILE = 'run_data'
 _FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
-_LABELED = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv_labeled.csv"
+_LABELED = "labeled_data/sim_run"
 labeled_data_folder = 'labeled_data'
 
 
@@ -30,9 +30,8 @@ class NormalizedCount:
         init_start = time.time()
 
         self.voxel_coords_to_ts = {(k[0], k[1]): v for k, v in voxel_coords_to_ts.items()}
-        if not os.path.isfile('a_ij_data_smaller_cascades/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
-            with open('a_ij_data_smaller_cascades/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as fp:
-                pickle.dump(self.voxel_coords_to_ts, fp, pickle.HIGHEST_PROTOCOL)
+        with open('a_ij_data_smaller_cascades/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as fp:
+            pickle.dump(self.voxel_coords_to_ts, fp, pickle.HIGHEST_PROTOCOL)
 
         self.f0 = f0
         self.p = p
@@ -58,7 +57,8 @@ class NormalizedCount:
         logging.info("building nc parameters, clustering")
         self.num_propagation_steps, self.ijs_at_each_timebin, self.ones_indices = self.count_coincident_components(
             self.raster)
-        self.num_cascades, self.clustered_timesteps = self.count_cascades(self.ones_indices, time_bin_length)
+        self.num_cascades, self.clustered_timesteps = self.count_cascades(self.ones_indices, time_bin_length,
+                                                                          cascade_length=i)
         params_done = time.time()
         logging.info("done with params, took: %s", params_done - raster_done)
 
@@ -247,16 +247,20 @@ class NormalizedCount:
         return raster, i_voxel_mapping
 
     @staticmethod
-    def count_cascades(flash_occurrences, time_bin_length):
+    def count_cascades(flash_occurrences, time_bin_length, cascade_length=None):
         """ Count the number of cascades and label timesteps to their cascade using kmeans
 
         :param flash_occurrences: Timesteps of flashes
         :param time_bin_length: time bin length
+        :param cascade_length
         :return: number of clusters, and list of flash -> cascade label pairs
         """
         list_of_flash_timebins = [fo[1] for fo in flash_occurrences]
         loft = np.array(list(set(list_of_flash_timebins)))
-        thresh = 5
+        if cascade_length is not None:
+            thresh = cascade_length
+        else:
+            thresh = 5
         num_clusters = 1
         for i in range(len(loft) - 1):
             j = i + 1
@@ -481,42 +485,47 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 # import sys
 
 
-def time_bin_parameter_sweep():
+def time_bin_parameter_sweep(cascade_lengths):
     v = 'Voxeled'
     l = 'Labeled'
     # time_bin_lengths = [6, 7, 8]
     time_bin_lengths = [1, 2, 3]
     do_3d = False
     dw_test = DataWrangler(_REAL_DATA_FILE, do_3d=do_3d)
-    # labeled_data = DataWrangler(labeled_data_folder, is_labeled=True)
+    # labeled_data = DataWrangler(_LABELED, is_labeled=True)
     normalized_count_adjacency_matrices = {}
     for time_bin_length in time_bin_lengths:
         normalized_count_adjacency_matrices[time_bin_length] = {v: [],
                                                                 l: []}
     for time_bin_length in time_bin_lengths:
-        for i, rvtat in enumerate(dw_test.real_voxels_to_activation_times):
-            normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
-                                               time_bin_length=time_bin_length,
-                                               i=i)
+        for i in cascade_lengths:
+            for rvtat in dw_test.real_voxels_to_activation_times:
+                normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
+                                                   time_bin_length=time_bin_length,
+                                                   i=i)
 
-            if not os.path.isfile('a_ij_data_smaller_cascades/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
                 with open('a_ij_data_smaller_cascades/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-                    pickle.dump(normalized_count.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
-            if not os.path.isfile('a_ij_data_smaller_cascades/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
+                          pickle.dump(normalized_count.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
                 with open('a_ij_data_smaller_cascades/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-                    pickle.dump(normalized_count.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
-            normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
+                          pickle.dump(normalized_count.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
+                normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
 
-        # for rvtat_ in [labeled_data.real_voxels_to_activation_times[0]]:
+        # for i, rvtat_ in enumerate(labeled_data.real_voxels_to_activation_times):
         #     normalized_count_on_labels = NormalizedCount(rvtat_, do_3d=do_3d,
         #                                                  time_bin_length=time_bin_length)
         #     normalized_count_adjacency_matrices[time_bin_length][l].append(normalized_count_on_labels.a_ij)
+        #     if not os.path.isfile('a_ij_data_smaller_cascades/Label_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
+        #         with open('a_ij_data_smaller_cascades/Label_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+        #             pickle.dump(normalized_count_on_labels.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
+        #     if not os.path.isfile('a_ij_data_smaller_cascades/Label_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
+        #         with open('a_ij_data_smaller_cascades/Label_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+        #             pickle.dump(normalized_count_on_labels.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
     logging.info("total edges in voxeled a_ij: ")
     for time_bin_length in time_bin_lengths:
         logging.info("Time bin size: %s", time_bin_length)
-        for index, a_ij in enumerate(normalized_count_adjacency_matrices[time_bin_length][v]):
+        for cascade_length, a_ij in zip(cascade_lengths, normalized_count_adjacency_matrices[time_bin_length][v]):
             logging.info("Edges: %s", np.count_nonzero(a_ij))
-            np.savetxt("a_ij_data_smaller_cascades/TimeBin_{}_voxeled_{}.txt".format(time_bin_length, index),
+            np.savetxt("a_ij_data_smaller_cascades/TimeBin_{}_voxeled_{}.txt".format(time_bin_length, cascade_length),
                        a_ij)
 
     # logging.info("total edges in labeled a_ij: ")
@@ -530,16 +539,17 @@ def time_bin_parameter_sweep():
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
-# time_bin_parameter_sweep()
 
-num_trials = 1
+
+cascade_ls = [1, 2, 3]
+time_bin_parameter_sweep(cascade_ls)
 
 nets = []
 cascade_startpoints = {}
 cascade_endpoints = {}
 time_bin_to_plot = 1
 
-for i in range(0, num_trials):
+for i in cascade_ls:
     cascade_startpoints[i] = []
     cascade_endpoints[i] = []
     with open('a_ij_data_smaller_cascades/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
@@ -574,7 +584,14 @@ for i in range(0, num_trials):
     nets.append(net)
 
 helpers.plot_directed_degree_dist(nets)
-helpers.plot_flash_emergence(nets, cascade_startpoints[0], cascade_endpoints[0], time_bin_to_plot)
+i_distributions = []
+f_distributions = []
+for cascade_l in cascade_ls:
+    initial_size_distribution, final_size_distribution = helpers.plot_flash_emergence(
+        nets, cascade_startpoints[cascade_l], cascade_endpoints[cascade_l], do_networks=False)
+    i_distributions.append(initial_size_distribution)
+    f_distributions.append(final_size_distribution)
+helpers.plot_size_distributions(i_distributions, f_distributions, cascade_ls[0])
 
 # test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
 

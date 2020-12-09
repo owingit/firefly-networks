@@ -29,8 +29,11 @@ class NormalizedCount:
     def __init__(self, voxel_coords_to_ts, do_3d=False, time_bin_length=1, i=1, f0=5, p=0.05):
         init_start = time.time()
 
-        self.voxel_coords_to_ts = {(k[0], k[1]): v for k, v in voxel_coords_to_ts.items()}
-        with open('a_ij_data_smaller_cascades/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as fp:
+        if do_3d is True:
+            self.voxel_coords_to_ts = {(k[0], k[1], k[2]): v for k, v in voxel_coords_to_ts.items()}
+        else:
+            self.voxel_coords_to_ts = {(k[0], k[1]): v for k, v in voxel_coords_to_ts.items()}
+        with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as fp:
             pickle.dump(self.voxel_coords_to_ts, fp, pickle.HIGHEST_PROTOCOL)
 
         self.f0 = f0
@@ -355,10 +358,10 @@ class DataWrangler:
                 self.voxel_length = 0.75
 
                 voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
-                self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1]),
+                self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1], x[2]),
                                                     voxels_to_activation_times.keys()))
 
-                real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1]): ts
+                real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1], key[2]): ts
                                                    for key, ts in voxels_to_activation_times.items()
                                                    }
                 self.dfs.append(self.df)
@@ -485,12 +488,11 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 # import sys
 
 
-def time_bin_parameter_sweep(cascade_lengths):
+def time_bin_parameter_sweep(cascade_lengths, do_3d=False):
     v = 'Voxeled'
     l = 'Labeled'
     # time_bin_lengths = [6, 7, 8]
     time_bin_lengths = [1, 2, 3]
-    do_3d = False
     dw_test = DataWrangler(_REAL_DATA_FILE, do_3d=do_3d)
     # labeled_data = DataWrangler(_LABELED, is_labeled=True)
     normalized_count_adjacency_matrices = {}
@@ -504,9 +506,9 @@ def time_bin_parameter_sweep(cascade_lengths):
                                                    time_bin_length=time_bin_length,
                                                    i=i)
 
-                with open('a_ij_data_smaller_cascades/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+                with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
                           pickle.dump(normalized_count.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
-                with open('a_ij_data_smaller_cascades/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+                with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
                           pickle.dump(normalized_count.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
                 normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
 
@@ -525,7 +527,7 @@ def time_bin_parameter_sweep(cascade_lengths):
         logging.info("Time bin size: %s", time_bin_length)
         for cascade_length, a_ij in zip(cascade_lengths, normalized_count_adjacency_matrices[time_bin_length][v]):
             logging.info("Edges: %s", np.count_nonzero(a_ij))
-            np.savetxt("a_ij_data_smaller_cascades/TimeBin_{}_voxeled_{}.txt".format(time_bin_length, cascade_length),
+            np.savetxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_length, cascade_length),
                        a_ij)
 
     # logging.info("total edges in labeled a_ij: ")
@@ -541,8 +543,10 @@ root = logging.getLogger()
 root.setLevel(logging.INFO)
 
 
-cascade_ls = [1, 2, 3]
-time_bin_parameter_sweep(cascade_ls)
+# cascade_ls = [1, 2, 3, 4, 5, 6, 7]
+cascade_ls = [5]
+do_3d = True
+# time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
 
 nets = []
 cascade_startpoints = {}
@@ -552,7 +556,7 @@ time_bin_to_plot = 1
 for i in cascade_ls:
     cascade_startpoints[i] = []
     cascade_endpoints[i] = []
-    with open('a_ij_data_smaller_cascades/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
+    with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
         cascade_list = pickle.load(fc)
 
     cascades = {}
@@ -568,30 +572,36 @@ for i in cascade_ls:
     cascade_endpoints[i] = sorted(cascade_endpoints[i])
     cascade_startpoints[i] = sorted(cascade_startpoints[i])
 
-    with open('a_ij_data_smaller_cascades/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as f:
+    with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as f:
         mapping_dict = pickle.load(f)
-    with open('a_ij_data_smaller_cascades/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fp:
+    with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fp:
         timing_dict = pickle.load(fp)
 
-    mapping_dict = {k: (v[1], v[2]) for k, v in mapping_dict.items()}
+    if do_3d is True:
+        mapping_dict = {k: (v[1], v[2], v[3]) for k, v in mapping_dict.items()}
+    else:
+        mapping_dict = {k: (v[0], v[1]) for k, v in mapping_dict.items()}
     nodes_to_times = {}
     for k, v in mapping_dict.items():
         nodes_to_times[k] = sorted(list(set(timing_dict[v])))
-    voxeled_g_tb_ = np.loadtxt("a_ij_data_smaller_cascades/TimeBin_{}_voxeled_{}.txt".format(time_bin_to_plot, i))
+    voxeled_g_tb_ = np.loadtxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_to_plot, i))
     net = nx.from_numpy_matrix(voxeled_g_tb_, create_using=nx.DiGraph)
     nx.set_node_attributes(net, mapping_dict, 'coords')
     nx.set_node_attributes(net, nodes_to_times, 'times')
     nets.append(net)
 
-helpers.plot_directed_degree_dist(nets)
+# helpers.plot_directed_degree_dist(nets)
 i_distributions = []
 f_distributions = []
+max_centrality_positions = []
 for cascade_l in cascade_ls:
-    initial_size_distribution, final_size_distribution = helpers.plot_flash_emergence(
-        nets, cascade_startpoints[cascade_l], cascade_endpoints[cascade_l], do_networks=False)
+    initial_size_distribution, final_size_distribution, high_centrality_positions = helpers.plot_flash_emergence(
+        nets, cascade_startpoints[cascade_l], cascade_endpoints[cascade_l], do_networks=True, do_3d=do_3d)
     i_distributions.append(initial_size_distribution)
     f_distributions.append(final_size_distribution)
-helpers.plot_size_distributions(i_distributions, f_distributions, cascade_ls[0])
+    max_centrality_positions.append(high_centrality_positions)
+# helpers.plot_size_distributions(i_distributions, f_distributions, cascade_ls[0])
+helpers.plot_high_centrality_positions(max_centrality_positions, do_3d=do_3d)
 
 # test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
 

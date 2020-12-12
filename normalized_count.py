@@ -590,24 +590,17 @@ for i in cascade_ls:
     nx.set_node_attributes(net, nodes_to_times, 'times')
     nets.append(net)
 
-# helpers.plot_directed_degree_dist(nets)
+helpers.plot_directed_degree_dist(nets)
 i_distributions = []
 f_distributions = []
 max_centrality_positions = []
+do_betweenness = True
 for cascade_l in cascade_ls:
     initial_size_distribution, final_size_distribution, high_centrality_positions = helpers.plot_flash_emergence(
-        nets, cascade_startpoints[cascade_l], cascade_endpoints[cascade_l], do_networks=True, do_3d=do_3d)
+        nets, cascade_startpoints[cascade_l], cascade_endpoints[cascade_l], do_networks=False, do_3d=do_3d,
+        do_betweenness=do_betweenness)
     i_distributions.append(initial_size_distribution)
     f_distributions.append(final_size_distribution)
     max_centrality_positions.append(high_centrality_positions)
-# helpers.plot_size_distributions(i_distributions, f_distributions, cascade_ls[0])
+helpers.plot_size_distributions(i_distributions, f_distributions, cascade_ls[0])
 helpers.plot_high_centrality_positions(max_centrality_positions, do_3d=do_3d)
-
-# test_random_raster = nc_shuffler(raster, normalized_count.clustered_timesteps)
-
-# normalized_count = NormalizedCount(dw_test.real_voxels_to_activation_times, do_3d=do_3d)
-# test_random_raster = nc_shuffler(normalized_count.raster, normalized_count.clustered_timesteps)
-
-# fig, ax = visualize_voxels_and_points(dw_test.real_voxels_to_activation_times, dw_test.df, dw_test.voxel_length)
-# ax.set_title("Simulated with Voxel Length 0.5")
-# plt.show()

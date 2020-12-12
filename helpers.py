@@ -258,29 +258,27 @@ def plot_cc(list_of_Gs):
     plt.show()
 
 
-def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascade_endpoints, do_networks=False, do_3d=False):
+def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascade_endpoints,
+                         do_networks=False, do_3d=False, do_betweenness=False):
     """Plots nodes and edges of voxels / labeled agents in cascades
 
     :param list_of_Gs: list of nx graphs made from np a_ij
+    :param list_of_cascade_startpoints
+    :param list_of_cascade_endpoints
+    :param do_networks: whether to plot nets
+    :param do_3d: whether to calc and plot in 3d
+    :param do_betweenness: whether to calc and plot betweenness centrality
     """
+    do_3d = False
     seed_set_sizes = []
     final_set_sizes = []
     blank = 0
-    # for index in range(1996):
-    #     cascade_startpoint = index
-    #     cascade_endpoint = index + 5
     high_centrality_positions = []
-    # for index in range(len(list_of_cascade_startpoints)):
-    #     cascade_startpoint = list_of_cascade_startpoints[index]
-    #     cascade_endpoint = list_of_cascade_endpoints[index]
-    for index in range(0, 1):
-        cascade_startpoint = 0
-        cascade_endpoint = 10000
+    for index in range(len(list_of_cascade_startpoints)):
+        cascade_startpoint = list_of_cascade_startpoints[index]
+        cascade_endpoint = list_of_cascade_endpoints[index]
 
         G = copy.deepcopy(list_of_Gs[0])
-        cmap = plt.get_cmap('autumn')
-
-        norm = plt.Normalize(cascade_startpoint, cascade_endpoint)
         nodes_in_cascade = [node for node in G.nodes if (
                  any([cascade_endpoint >= time >= cascade_startpoint for time in G.nodes[node]['times']]))]
         node_effective_times = {node: G.nodes[node]['times'] for node in nodes_in_cascade}
@@ -294,9 +292,11 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
             for time in times_to_remove:
                 node_effective_times[node].remove(time)
 
+        cmap = plt.get_cmap('autumn')
+        norm = plt.Normalize(cascade_startpoint, cascade_endpoint)
         node_colors = cmap(norm([min(node_effective_times[node]) for node in nodes_in_cascade]))
-        nodes_to_remove = []
 
+        nodes_to_remove = []
         for n in G.nodes():
             if n not in nodes_in_cascade:
                 nodes_to_remove.append(n)
@@ -313,8 +313,11 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
             seed_set = [node for node in nodes_in_cascade if first_node_time in G.nodes[node]['times']]
             len_seed_set = len(seed_set)
             num_nodes_in_cascade = len(G.nodes())
+
         if blank >= 5:
+            #  skip gaps
             continue
+
         seed_set_sizes.append(len_seed_set)
         final_set_sizes.append(num_nodes_in_cascade)
         edges_to_remove = []
@@ -325,32 +328,42 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
         for edge in edges_to_remove:
             G.remove_edge(edge[0], edge[1])
 
-        _centralities = nx.betweenness_centrality(G)
-        max_key = max(_centralities, key=_centralities.get)
-        max_key_pos = G.nodes[max_key]['coords']
-        _centralities_norm = plt.Normalize(0, max(_centralities.values()))
-        node_colors_ = cmap(_centralities_norm([_centralities[node] for node in G.nodes]))
-        node_alphas_ = _centralities_norm([_centralities[node] for node in G.nodes])
-        node_color_alphas_ = []
-        edge_color_alphas = []
-        for i, node_color in enumerate(node_colors_):
-            r, g, b = node_color[0], node_color[1], node_color[2]
-            a = node_alphas_[i]
-            if a < 0.1:
-                a = 0.1
-            edge_color_alphas.append([0, 0, 0, a])
-            node_color_alphas_.append([r, g, b, a])
+        if do_betweenness:
+            _centralities = nx.betweenness_centrality(G)
+            max_key = max(_centralities, key=_centralities.get)
+            max_key_pos = G.nodes[max_key]['coords']
+            high_centrality_positions.append(max_key_pos)
+            _centralities_norm = plt.Normalize(0, max(_centralities.values()))
+            node_colors_ = cmap(_centralities_norm([_centralities[node] for node in G.nodes]))
+            node_alphas_ = _centralities_norm([_centralities[node] for node in G.nodes])
+            node_color_alphas_ = []
+            edge_color_alphas = []
+            for i, node_color in enumerate(node_colors_):
+                r, g, b = node_color[0], node_color[1], node_color[2]
+                a = node_alphas_[i]
+                if a < 0.1:
+                    a = 0.1
+                edge_color_alphas.append([0, 0, 0, a])
+                node_color_alphas_.append([r, g, b, a])
+        else:
+            _centralities_norm = None
+            node_color_alphas_ = None
+            edge_color_alphas = None
+            node_colors_ = None
 
         if do_networks:
+            _x_ = 0
+            _y_ = 1
+            _z_ = 2
             fig = plt.figure(figsize=(10, 7))
             if do_3d:
                 ax1 = Axes3D(fig)
             else:
                 ax1 = fig.add_subplot(111)
-            xs = [G.nodes[node]['coords'][0] for node in G.nodes()]
-            ys = [G.nodes[node]['coords'][1] for node in G.nodes()]
+            xs = [G.nodes[node]['coords'][_x_] for node in G.nodes()]
+            ys = [G.nodes[node]['coords'][_y_] for node in G.nodes()]
             if do_3d:
-                zs = [G.nodes[node]['coords'][2] for node in G.nodes()]
+                zs = [G.nodes[node]['coords'][_z_] for node in G.nodes()]
                 node_indices = list(G.nodes())
                 graph_layout = dict(zip(node_indices, zip(xs, ys, zs)))
             else:
@@ -358,17 +371,19 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
                 graph_layout = dict(zip(node_indices, zip(xs, ys)))
             if do_3d:
                 for i, (key, value) in enumerate(graph_layout.items()):
-                    xi = value[0]
-                    yi = value[1]
-                    zi = value[2]
-
-                    # Scatter plot
-                    ax1.scatter(xi, yi, zi, c=node_color_alphas_[i], s=20 + 20 * G.degree(key),
-                                edgecolors=edge_color_alphas[i])
+                    xi = value[_x_]
+                    yi = value[_y_]
+                    zi = value[_z_]
+                    if do_betweenness:
+                        # Scatter plot
+                        ax1.scatter(xi, yi, zi, c=node_color_alphas_[i], s=20 + 20 * G.degree(key),
+                                    edgecolors=edge_color_alphas[i])
+                    else:
+                        ax1.scatter(xi, yi, zi, c=node_colors[i], s=20 + 20 * G.degree(key), edgecolors='k')
                 for i, j in enumerate(G.edges()):
-                    x = np.array((graph_layout[j[0]][0], graph_layout[j[1]][0]))
-                    y = np.array((graph_layout[j[0]][1], graph_layout[j[1]][1]))
-                    z = np.array((graph_layout[j[0]][2], graph_layout[j[1]][2]))
+                    x = np.array((graph_layout[j[0]][_x_], graph_layout[j[1]][_x_]))
+                    y = np.array((graph_layout[j[0]][_y_], graph_layout[j[1]][_y_]))
+                    z = np.array((graph_layout[j[0]][_z_], graph_layout[j[1]][_z_]))
                     # Plot the connecting lines
                     arw = Arrow3D([x[0], x[1]], [y[0], y[1]], [z[0], z[1]], arrowstyle="->",
                                   color="black",
@@ -377,8 +392,12 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
                 ax1.tick_params(left=True, bottom=True, right=True, labelright=True,
                                 labelleft=True, labelbottom=True)
             else:
-                nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors_,
-                        node_size=[(v + 1) * 10 for v in degrees.values()])
+                if do_betweenness:
+                    nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors_,
+                            node_size=[(v + 1) * 10 for v in degrees.values()])
+                else:
+                    nx.draw(G, pos=graph_layout, ax=ax1, node_color=node_colors,
+                            node_size=[(v + 1) * 10 for v in degrees.values()])
                 ax1.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
             limits = plt.axis('on')
             ax1.set_xlabel('X embedded position')
@@ -389,21 +408,36 @@ def plot_flash_emergence(list_of_Gs, list_of_cascade_startpoints, list_of_cascad
             ax1.set_ylim(-20, 20)
             if do_3d:
                 ax1.set_zlim(-20, 20)
-            # label = 'Time of flash in cascade'
-            label = 'Betweenness centrality'
-            cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=_centralities_norm), label=label, shrink=0.95, ax=ax1,)
+            if do_betweenness:
+                label = 'Betweenness centrality'
+                cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=_centralities_norm), label=label, shrink=0.95,
+                                    ax=ax1, )
+            else:
+                label = 'Time of flash in cascade'
+                cbar = fig.colorbar(ScalarMappable(cmap=cmap, norm=norm), label=label, shrink=0.95,
+                                    ax=ax1, )
             cblocations = [cascade_startpoint, 10]
-            cblabels = ['Lower', 'Higher']
-            # cblabels = ['Earlier', 'Later']
+            if do_betweenness:
+                cblabels = ['Lower', 'Higher']
+            else:
+                cblabels = ['Earlier', 'Later']
             cbar.set_ticks(cblocations)
             cbar.set_ticklabels(cblabels)
             plt.title('Steps {}-{}: {} nodes -> {} nodes'.format(
                 cascade_startpoint, cascade_endpoint, len_seed_set, num_nodes_in_cascade))
             plt.show()
-            plt.savefig('a_ij_data_smaller_cascades/nets/for_gif_steps{}to{}_{}_nodes_to_{}_nodes.png'.format(
-                cascade_startpoint, cascade_endpoint, len_seed_set, num_nodes_in_cascade))
+            if do_3d:
+                stri_augment = '3d_'
+            else:
+                stri_augment = '_'
+            if do_betweenness:
+                stri = 'a_ij_data_smaller_cascades/nets/{}btw_steps{}to{}_{}_nodes_to_{}_nodes.png'.format(
+                    stri_augment, cascade_startpoint, cascade_endpoint, len_seed_set, num_nodes_in_cascade)
+            else:
+                stri = 'a_ij_data_smaller_cascades/nets/{}flashplot_steps{}to{}_{}_nodes_to_{}_nodes.png'.format(
+                    stri_augment, cascade_startpoint, cascade_endpoint, len_seed_set, num_nodes_in_cascade)
+            plt.savefig(stri)
             plt.close()
-        high_centrality_positions.append(max_key_pos)
     return seed_set_sizes, final_set_sizes, high_centrality_positions
 
 
@@ -452,7 +486,20 @@ def plot_high_centrality_positions(list_of_position_lists, do_3d=False):
                        extent=[x[0], x[-1], y[0], y[-1]])
             plt.show()
         else:
-            print('3d plot coming')
+            print('unsupported: 3d histogram of betweenness')
+            # this doesn't work, oh well
+            # xyzs = [(p[0], p[1], p[2]) for p in position_list]
+            #
+            # H, edges = np.histogramdd(xyzs, bins=10, density=True)
+            # fig = plt.figure(figsize=(7, 3))
+            # ax = Axes3D(fig, title='Dist of high betweenness locations')
+            # plt.imshow(np.reshape(H, (-1, 2)), interpolation='nearest', origin='lower', aspect='auto',
+            #            extent=[edges[0][0],
+            #                    edges[0][-1],
+            #                    edges[0][0],
+            #                    edges[0][-1]
+            #                    ])
+            # plt.show()
 
 
 class Arrow3D(FancyArrowPatch):

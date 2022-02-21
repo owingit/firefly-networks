@@ -355,7 +355,7 @@ class DataWrangler:
                     self.min_z = self.df["z"].min()
                 else:
                     self.min_z = None
-                self.voxel_length = 0.75
+                self.voxel_length = 0.5
 
                 voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
                 self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1], x[2]),
@@ -543,8 +543,8 @@ root = logging.getLogger()
 root.setLevel(logging.INFO)
 
 
-# cascade_ls = [1, 2, 3, 4, 5, 6, 7]
-cascade_ls = [5]
+cascade_ls = [1, 2, 3, 4, 5, 6, 7]
+# cascade_ls = [5]
 do_3d = True
 # time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
 

@@ -15,9 +15,6 @@ import helpers
 from scipy.stats import norm
 
 _REAL_DATA_FILE = 'run_data'
-_FILE = "0.390625density0.1betadistributionTb_obstacles1600_steps_experiment_results_2020-11-09_11:05:25.960570_csv.csv"
-_LABELED = "labeled_data/sim_run"
-labeled_data_folder = 'labeled_data'
 
 
 class NormalizedCount:
@@ -38,15 +35,6 @@ class NormalizedCount:
 
         self.f0 = f0
         self.p = p
-
-        # old code for nc_ij per cascade
-        # self.nc_ij = {}
-        # for cascade in range(self.num_cascades):
-        #     timesteps_in_cascade = [cts[0] for cts in self.clustered_timesteps if cts[1] == cascade]
-        #     min_t = min(timesteps_in_cascade)
-        #     max_t = max(timesteps_in_cascade)
-        #     self.nc_ij[cascade] = self.normalized_count(min_t=min_t, max_t=max_t)
-        # print(self.nc_ij)
 
         #################
         #    MAIN NC
@@ -126,13 +114,13 @@ class NormalizedCount:
         nc_r_ij = []
 
         N_r = int(f0 / p)
-        logging.debug("running NC on %s shuffled copies of raster for null model", N_r)
+        logging.info("running NC on %s shuffled copies of raster for null model", N_r)
 
         durations = []
         started = time.time()
         for i in range(N_r):
             if i > 0 and i % 10 == 0:
-                logging.debug("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
+                logging.info("average duration for shuffled nc_ij (finished %s) so far: %s", i, np.mean(durations))
 
             nc_r_ij.append(NormalizedCount.make_shuffled_nc_ij(base_raster, clustered_timebins))
             finished = time.time()
@@ -491,52 +479,35 @@ def visualize_voxels_and_points(voxeled, df, voxel_length):
 def time_bin_parameter_sweep(cascade_lengths, do_3d=False):
     v = 'Voxeled'
     l = 'Labeled'
-    # time_bin_lengths = [6, 7, 8]
-    time_bin_lengths = [1, 2, 3]
+
+    time_bin_lengths = [2, 3]
+    do_3d = True
     dw_test = DataWrangler(_REAL_DATA_FILE, do_3d=do_3d)
-    # labeled_data = DataWrangler(_LABELED, is_labeled=True)
     normalized_count_adjacency_matrices = {}
     for time_bin_length in time_bin_lengths:
         normalized_count_adjacency_matrices[time_bin_length] = {v: [],
                                                                 l: []}
     for time_bin_length in time_bin_lengths:
-        for i in cascade_lengths:
-            for rvtat in dw_test.real_voxels_to_activation_times:
-                normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
-                                                   time_bin_length=time_bin_length,
-                                                   i=i)
+        for i, rvtat in enumerate(dw_test.real_voxels_to_activation_times):
+            normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
+                                               time_bin_length=time_bin_length,
+                                               i=i)
 
-                with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-                          pickle.dump(normalized_count.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
-                with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-                          pickle.dump(normalized_count.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
-                normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
+            # if not os.path.isfile('a_ij_data/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
+            #     with open('a_ij_data/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+            #         pickle.dump(normalized_count.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
+            # if not os.path.isfile('a_ij_data/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
+            #     with open('a_ij_data/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
+            #         pickle.dump(normalized_count.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
+            normalized_count_adjacency_matrices[time_bin_length][v].append(normalized_count.a_ij)
 
-        # for i, rvtat_ in enumerate(labeled_data.real_voxels_to_activation_times):
-        #     normalized_count_on_labels = NormalizedCount(rvtat_, do_3d=do_3d,
-        #                                                  time_bin_length=time_bin_length)
-        #     normalized_count_adjacency_matrices[time_bin_length][l].append(normalized_count_on_labels.a_ij)
-        #     if not os.path.isfile('a_ij_data_smaller_cascades/Label_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
-        #         with open('a_ij_data_smaller_cascades/Label_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-        #             pickle.dump(normalized_count_on_labels.i_voxel_mapping, f, pickle.HIGHEST_PROTOCOL)
-        #     if not os.path.isfile('a_ij_data_smaller_cascades/Label_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
-        #         with open('a_ij_data_smaller_cascades/Label_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
-        #             pickle.dump(normalized_count_on_labels.clustered_timesteps, f, pickle.HIGHEST_PROTOCOL)
-    logging.info("total edges in voxeled a_ij: ")
+    logging.info("total edges in labeled a_ij: ")
     for time_bin_length in time_bin_lengths:
         logging.info("Time bin size: %s", time_bin_length)
-        for cascade_length, a_ij in zip(cascade_lengths, normalized_count_adjacency_matrices[time_bin_length][v]):
-            logging.info("Edges: %s", np.count_nonzero(a_ij))
-            np.savetxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_length, cascade_length),
-                       a_ij)
-
-    # logging.info("total edges in labeled a_ij: ")
-    # for time_bin_length in time_bin_lengths:
-    #     logging.info("Time bin size: %s", time_bin_length)
-    #     for i, aij in enumerate(normalized_count_adjacency_matrices[time_bin_length][l]):
-    #         logging.info("Edges: %s", np.count_nonzero(aij))
-    #         np.savetxt("a_ij_data_smaller_cascades/TimeBin_{}_labeled_{}.txt".format(time_bin_length, i),
-    #                    aij)
+        for i, aij in enumerate(normalized_count_adjacency_matrices[time_bin_length][l]):
+            logging.info("Edges: %s", np.count_nonzero(aij))
+            np.savetxt("a_ij_data_smaller_cascades/TimeBin_{}_labeled_{}.txt".format(time_bin_length, i),
+                       aij)
 
 
 root = logging.getLogger()

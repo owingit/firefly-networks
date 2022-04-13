@@ -344,14 +344,12 @@ class DataWrangler:
                 else:
                     self.min_z = None
                 self.voxel_length = 0.75
-
                 voxels_to_activation_times = self.pair_voxels_with_activation_times(do_3d=do_3d)
                 self.active_voxel_coords = list(map(lambda x: self.voxel_to_positions(x[0], x[1], x[2]),
                                                     voxels_to_activation_times.keys()))
 
                 real_voxels_to_activation_times = {self.voxel_to_positions(key[0], key[1], key[2]): ts
-                                                   for key, ts in voxels_to_activation_times.items()
-                                                   }
+                                                   for key, ts in voxels_to_activation_times.items()}
                 self.dfs.append(self.df)
                 self.real_voxels_to_activation_times.append(real_voxels_to_activation_times)
         else:
@@ -480,7 +478,7 @@ def time_bin_parameter_sweep(cascade_lengths, do_3d=False):
     v = 'Voxeled'
     l = 'Labeled'
 
-    time_bin_lengths = [2, 3]
+    time_bin_lengths = [1, 2]
     do_3d = True
     dw_test = DataWrangler(_REAL_DATA_FILE, do_3d=do_3d)
     normalized_count_adjacency_matrices = {}
@@ -488,10 +486,11 @@ def time_bin_parameter_sweep(cascade_lengths, do_3d=False):
         normalized_count_adjacency_matrices[time_bin_length] = {v: [],
                                                                 l: []}
     for time_bin_length in time_bin_lengths:
+        cascade_length = 5
         for i, rvtat in enumerate(dw_test.real_voxels_to_activation_times):
             normalized_count = NormalizedCount(rvtat, do_3d=do_3d,
                                                time_bin_length=time_bin_length,
-                                               i=i)
+                                               i=cascade_length)
 
             # if not os.path.isfile('a_ij_data/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i)):
             #     with open('a_ij_data/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_length, i), 'wb') as f:
@@ -517,7 +516,7 @@ root.setLevel(logging.INFO)
 # cascade_ls = [1, 2, 3, 4, 5, 6, 7]
 cascade_ls = [5]
 do_3d = True
-# time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
+time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
 
 nets = []
 cascade_startpoints = {}

@@ -546,49 +546,49 @@ root.setLevel(logging.INFO)
 # cascade_ls = [1, 2, 3, 4, 5, 6, 7]
 cascade_ls = [5]
 do_3d = True
-# time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
+time_bin_parameter_sweep(cascade_ls, do_3d=do_3d)
 
 nets = []
 cascade_startpoints = {}
 cascade_endpoints = {}
 time_bin_to_plot = 1
-
-for i in cascade_ls:
-    cascade_startpoints[i] = []
-    cascade_endpoints[i] = []
-    with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
-        cascade_list = pickle.load(fc)
-
-    cascades = {}
-    for pair in cascade_list:
-        if cascades.get(pair[1]):
-            cascades[pair[1]].append(pair[0])
-        else:
-            cascades[pair[1]] = [pair[0]]
-
-    for key in cascades:
-        cascade_startpoints[i].append(min(cascades[key]))
-        cascade_endpoints[i].append(max(cascades[key]))
-    cascade_endpoints[i] = sorted(cascade_endpoints[i])
-    cascade_startpoints[i] = sorted(cascade_startpoints[i])
-
-    with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as f:
-        mapping_dict = pickle.load(f)
-    with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fp:
-        timing_dict = pickle.load(fp)
-
-    if do_3d is True:
-        mapping_dict = {k: (v[1], v[2], v[3]) for k, v in mapping_dict.items()}
-    else:
-        mapping_dict = {k: (v[0], v[1]) for k, v in mapping_dict.items()}
-    nodes_to_times = {}
-    for k, v in mapping_dict.items():
-        nodes_to_times[k] = sorted(list(set(timing_dict[v])))
-    voxeled_g_tb_ = np.loadtxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_to_plot, i))
-    net = nx.from_numpy_matrix(voxeled_g_tb_, create_using=nx.DiGraph)
-    nx.set_node_attributes(net, mapping_dict, 'coords')
-    nx.set_node_attributes(net, nodes_to_times, 'times')
-    nets.append(net)
+#
+# for i in cascade_ls:
+#     cascade_startpoints[i] = []
+#     cascade_endpoints[i] = []
+#     with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
+#         cascade_list = pickle.load(fc)
+#
+#     cascades = {}
+#     for pair in cascade_list:
+#         if cascades.get(pair[1]):
+#             cascades[pair[1]].append(pair[0])
+#         else:
+#             cascades[pair[1]] = [pair[0]]
+#
+#     for key in cascades:
+#         cascade_startpoints[i].append(min(cascades[key]))
+#         cascade_endpoints[i].append(max(cascades[key]))
+#     cascade_endpoints[i] = sorted(cascade_endpoints[i])
+#     cascade_startpoints[i] = sorted(cascade_startpoints[i])
+#
+#     with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as f:
+#         mapping_dict = pickle.load(f)
+#     with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fp:
+#         timing_dict = pickle.load(fp)
+#
+#     if do_3d is True:
+#         mapping_dict = {k: (v[1], v[2], v[3]) for k, v in mapping_dict.items()}
+#     else:
+#         mapping_dict = {k: (v[0], v[1]) for k, v in mapping_dict.items()}
+#     nodes_to_times = {}
+#     for k, v in mapping_dict.items():
+#         nodes_to_times[k] = sorted(list(set(timing_dict[v])))
+#     voxeled_g_tb_ = np.loadtxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_to_plot, i))
+#     net = nx.from_numpy_matrix(voxeled_g_tb_, create_using=nx.DiGraph)
+#     nx.set_node_attributes(net, mapping_dict, 'coords')
+#     nx.set_node_attributes(net, nodes_to_times, 'times')
+#     nets.append(net)
 
 helpers.plot_directed_degree_dist(nets)
 i_distributions = []

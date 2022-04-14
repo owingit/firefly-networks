@@ -8,6 +8,7 @@ from mpl_toolkits.mplot3d import proj3d
 from matplotlib.patches import FancyArrowPatch
 
 import networkx as nx
+import pickle
 
 import copy
 
@@ -157,7 +158,6 @@ def nc_shuffler(raster, clustered_timebins):
         try:
             # sanity check
             if min_bin == max_bin:
-                print("min and max bins are equal: %s, this shouldn't happen" % min_bin)
                 raise Exception()
         except Exception:
             num_length_one_cascades += 1
@@ -487,19 +487,48 @@ def plot_high_centrality_positions(list_of_position_lists, do_3d=False):
             plt.show()
         else:
             print('unsupported: 3d histogram of betweenness')
-            # this doesn't work, oh well
-            # xyzs = [(p[0], p[1], p[2]) for p in position_list]
-            #
-            # H, edges = np.histogramdd(xyzs, bins=10, density=True)
-            # fig = plt.figure(figsize=(7, 3))
-            # ax = Axes3D(fig, title='Dist of high betweenness locations')
-            # plt.imshow(np.reshape(H, (-1, 2)), interpolation='nearest', origin='lower', aspect='auto',
-            #            extent=[edges[0][0],
-            #                    edges[0][-1],
-            #                    edges[0][0],
-            #                    edges[0][-1]
-            #                    ])
-            # plt.show()
+
+
+def additional_plotting(cascade_ls, do_3d, cascade_startpoints, cascade_endpoints):
+    nets = []
+    for i in cascade_ls:
+        cascade_startpoints[i] = []
+        cascade_endpoints[i] = []
+        with open('a_ij_data_smaller_cascades/3d/Voxel_Cascade_endpoints_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fc:
+            cascade_list = pickle.load(fc)
+
+        cascades = {}
+        for pair in cascade_list:
+            if cascades.get(pair[1]):
+                cascades[pair[1]].append(pair[0])
+            else:
+                cascades[pair[1]] = [pair[0]]
+
+        for key in cascades:
+            cascade_startpoints[i].append(min(cascades[key]))
+            cascade_endpoints[i].append(max(cascades[key]))
+        cascade_endpoints[i] = sorted(cascade_endpoints[i])
+        cascade_startpoints[i] = sorted(cascade_startpoints[i])
+        time_bin_to_plot = 1
+        with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Mapping_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as f:
+            mapping_dict = pickle.load(f)
+        with open('a_ij_data_smaller_cascades/3d/Voxel_Node_Timing_tbl_{}_index_{}.pkl'.format(time_bin_to_plot, i), 'rb') as fp:
+            timing_dict = pickle.load(fp)
+
+        if do_3d is True:
+            mapping_dict = {k: (v[1], v[2], v[3]) for k, v in mapping_dict.items()}
+        else:
+            mapping_dict = {k: (v[0], v[1]) for k, v in mapping_dict.items()}
+        nodes_to_times = {}
+        for k, v in mapping_dict.items():
+            nodes_to_times[k] = sorted(list(set(timing_dict[v])))
+        voxeled_g_tb_ = np.loadtxt("a_ij_data_smaller_cascades/3d/TimeBin_{}_voxeled_{}.txt".format(time_bin_to_plot, i))
+        net = nx.from_numpy_matrix(voxeled_g_tb_, create_using=nx.DiGraph)
+        nx.set_node_attributes(net, mapping_dict, 'coords')
+        nx.set_node_attributes(net, nodes_to_times, 'times')
+        nets.append(net)
+    return nets
+
 
 
 class Arrow3D(FancyArrowPatch):

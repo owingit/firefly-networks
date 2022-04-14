@@ -1,3 +1,6 @@
 */*.txt
+*/*.pkl
 *.txt
 *.csv
+*.pkl
+.idea/*
